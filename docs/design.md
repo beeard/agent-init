@@ -62,7 +62,7 @@ A layer is a directory with the same shape as the composed result, and its filen
 
 - **No suffix** writes the file. A later layer writing the same path replaces it.
 - **`.append`** appends to the named file inside `<!-- agent-init:begin <layer> -->` markers.
-- **`.merge`** shallow-merges a JSON object into the named file, incoming keys winning.
+- **`.merge`** merges a JSON object into the named file: a key holding an object on both sides merges one level deeper, so several layers contribute to one shared value instead of overwriting each other, while every other key is replaced. A key the two sides disagree about the shape of fails the run rather than being resolved either way, because composing a shared value and setting one outright are different intents and the shapes are what tell them apart.
 
 The marker naming the layer is not decoration. With one shared marker, a second layer appending to `AGENTS.md` finds the marker present and contributes nothing — silently, with no failing check.
 

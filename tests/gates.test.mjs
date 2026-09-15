@@ -498,6 +498,35 @@ test('build and dependency directories are not walked', () => {
   })
 })
 
+test('--staged still rejects a staged file the rule covers', () => {
+  withRepo({}, (repo) => {
+    writeFileSync(join(repo, 'docs', 'bare.md'), '# Title\n\nno newline at the end', 'utf8')
+    writeFileSync(join(repo, 'docs', 'fine.md'), '# Title\n\nbody\n', 'utf8')
+    assert.equal(spawnSync('git', ['-C', repo, 'add', 'docs/bare.md', 'docs/fine.md'], { encoding: 'utf8' }).status, 0)
+    const result = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-final-newline.mjs'), '--staged'],
+      { cwd: repo, encoding: 'utf8' })
+    assert.equal(result.status, 1)
+    assert.match(result.stderr, /docs\/bare\.md\s+no trailing newline/u)
+  })
+})
+
+test('--staged never judges a file the repository run would not', () => {
+  withRepo({}, (repo) => {
+    // Staged files this rule was never written for: no glob matches either, and
+    // a trailing newline cannot be added to a PNG. Failing a commit over one
+    // leaves the author no remedy inside the gate, only --no-verify.
+    writeFileSync(join(repo, 'Makefile'), 'all:\n\techo hi', 'utf8')
+    writeFileSync(join(repo, 'logo.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]))
+    assert.equal(spawnSync('git', ['-C', repo, 'add', 'Makefile', 'logo.png'], { encoding: 'utf8' }).status, 0)
+    const staged = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-final-newline.mjs'), '--staged'],
+      { cwd: repo, encoding: 'utf8' })
+    assert.equal(staged.status, 0, staged.stdout + staged.stderr)
+    assert.match(staged.stdout, /0 file\(s\) checked/u)
+    // The suite the hook runs must therefore pass on the same working tree.
+    assert.equal(runSuite(repo, 'commit').code, 0)
+  })
+})
+
 test('--staged restricts the newline check to staged files', () => {
   withRepo({}, (repo) => {
     writeFileSync(join(repo, 'docs', 'old.md'), '# pre-existing', 'utf8')

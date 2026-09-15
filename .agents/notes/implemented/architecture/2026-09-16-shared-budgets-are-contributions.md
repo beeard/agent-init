@@ -24,6 +24,10 @@ The base layer owns the document and declares the first contribution. Each later
 
 To make this expressible, `.merge` gained one rule: **a key whose value is an object on both sides merges one level deeper; every other key is replaced.** That is what lets several layers each contribute to one shared value instead of overwriting it.
 
+The two forms may not meet. A key the file and the template disagree about the shape of — an object on one side, a scalar or an array on the other — fails the run instead of being resolved. Composing a shared value and setting one outright are different intents, and the shape is what tells them apart: writing the template's shape over a scalar on disk drops the entries the file held, and reading a scalar as a contribution object sums in a share no layer declared. The refusal names the file, the key, and both shapes, and it is raised before that file is written.
+
+This is what a repository adopted under the earlier absolute form hits on its first re-run: the file on disk says `"AGENTS.md": 890` and the template says `"AGENTS.md": { "python": 290 }`. Nothing in the merge can say which layer the 890 belonged to, and the run that guessed wrong would report a composed ceiling while silently cutting `AGENTS.md` to one layer's share. The way out is stated in the message: convert the entry by hand, or delete the file and re-run to rebuild it from the templates — which costs whatever entries only that file declared.
+
 A document owned outright by one layer keeps a plain number.
 
 ## Alternatives considered
@@ -42,7 +46,9 @@ A document owned outright by one layer keeps a plain number.
 
 A shared document's ceiling composes correctly for any set of layers, and the `--list` output shows which layer asked for which share — which is what makes a surprising ceiling diagnosable rather than mysterious.
 
-The cost is that `.merge` now has two rules instead of one: objects merge one level deeper, scalars replace. That is a small amount of implicit behavior in a mechanism whose whole purpose is to be predictable, and it is the kind of thing that is invisible until it surprises someone. The rule is stated in the merge function's own documentation and in the repository's standing orders.
+The cost is that `.merge` now has two rules instead of one: objects merge one level deeper, scalars replace. That is a small amount of implicit behavior in a mechanism whose whole purpose is to be predictable, and it is the kind of thing that is invisible until it surprises someone. The rule is stated in the merge function's own documentation, in the suffix table of the repository's standing orders, and in `docs/design.md`.
+
+What keeps that from being a rule only a reader can apply is the refusal: the one case where the two forms meet is the case where guessing is destructive, and there the merge stops instead of choosing. A layer author who reads the rule will still write the right shape, and one who does not gets a message naming the key rather than a ceiling that quietly holds one layer's share.
 
 A second cost is that a layer's contribution is a number a human estimates rather than one derived from the template. Nothing checks that a layer's declared share matches the words it actually appends; the check is on the delivered document, which is the number that matters.
 

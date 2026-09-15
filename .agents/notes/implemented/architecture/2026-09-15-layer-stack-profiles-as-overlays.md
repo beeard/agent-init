@@ -16,11 +16,13 @@ A language profile is an additive overlay applied after `base`, selected with `-
 
 - **No suffix** writes the file. A later layer writing the same path replaces it, so only the last write survives.
 - **`.append`** appends to the named file inside `<!-- agent-init:begin <layer> -->` markers. The marker names the contributing layer, so a second layer finds its own marker absent and appends its own section. A re-run finds the marker present and does nothing.
-- **`.merge`** shallow-merges a JSON object into the named file, incoming keys winning. A layer adds its entries without restating the ones below it.
+- **`.merge`** merges a JSON object into the named file: a key holding an object on both sides merges one level deeper, every other key is replaced, and a key whose shape the two sides disagree about fails the run. A layer adds its entries without restating the ones below it.
 
 Manifests use `.merge`: `gates.json`, `config.json`, and `doc-budgets.manifest.json`. Standing orders use `.append`. Everything else writes.
 
 The gate inventory moved from a constant in `run.mjs` into `gates.json`, keyed by script name, so a layer registers a gate by merging one entry rather than by editing Node source. Each entry names the groups it belongs to and whether it is advisory. The groups are `commit` (what the pre-commit hook runs, with `--staged`) and `full` (the whole repository).
+
+A gate in the `commit` group judges the same files it judges in `full`, restricted to the staged subset — never a different set. A staged run that reached wider than the repository run would fail a commit over files the rule was never written for, and a rule a file cannot satisfy has no remedy but `--no-verify`, which costs the gate every future run.
 
 A gate marked `advisory` prints its findings and does not fail the run. `--lenient` marks every gate advisory at scaffold time, so adopting on an existing repository does not open with the complete backlog of rules that repository has not followed yet.
 

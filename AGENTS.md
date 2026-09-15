@@ -17,7 +17,7 @@ A template file is applied according to its suffix, and the suffix is the whole 
 |---|---|
 | *(none)* | Written. A later layer writing the same path replaces it, so only the last write survives. |
 | `.append` | Appended to the named file inside `<!-- agent-init:begin <layer> -->` markers, so a re-run stays idempotent and two layers can both contribute. |
-| `.merge` | Shallow-merged into the named JSON object, incoming keys winning, so a layer adds entries without restating the ones below it. |
+| `.merge` | Merged into the named JSON object: a key holding an object on both sides merges one level deeper, every other key is replaced, and a key whose shape the two sides disagree on fails the run. |
 
 A layer that restates a lower layer's entries instead of merging goes stale silently the moment the lower layer changes. Manifests — `gates.json`, `config.json`, `doc-budgets.manifest.json` — are `.merge` for exactly that reason.
 

@@ -9,8 +9,9 @@
  * The check is byte-level and does not parse anything, so it applies to every
  * text format the repository holds rather than to one language.
  *
- * `--staged` checks only the files staged for commit, which is how the
- * pre-commit hook uses it.
+ * `--staged` checks the staged files, which is how the pre-commit hook uses it.
+ * It judges only files the whole-repository run would judge as well, so the
+ * hook stays a subset of the suite rather than a stricter one.
  */
 
 import { readFileSync, statSync } from 'node:fs'
@@ -56,17 +57,31 @@ function selectFiles(root, stagedOnly) {
   const globs = config.finalNewlineGlobs ?? DEFAULT_GLOBS
   const excluded = new Set(config.finalNewlineSkipDirectories ?? DEFAULT_SKIP_DIRECTORIES)
   const isSkipped = relPath => relPath.split('/').some(segment => excluded.has(segment))
-  const fromRepository = () =>
-    collectFiles(root, globs, isSkipped).map(file => ({ abs: file.abs, relPath: file.realPath ?? file.relPath }))
+  const corpus = collectFiles(root, globs, isSkipped)
+  const entry = file => ({ abs: file.abs, relPath: file.realPath ?? file.relPath })
 
-  if (!stagedOnly) return fromRepository()
+  if (!stagedOnly) return corpus.map(entry)
 
   const staged = stagedSources(root)
   if (staged === null) {
     console.error('verify-final-newline: --staged needs a Git worktree; falling back to the whole repository')
-    return fromRepository()
+    return corpus.map(entry)
   }
-  return staged.filter(relPath => !isSkipped(relPath)).map(relPath => ({ abs: resolve(root, relPath), relPath }))
+  // The staged run is the repository run restricted to the staged subset, never
+  // a wider one. Both take their corpus from the same globs, so the hook cannot
+  // fail a commit over a file this rule was never written for — a binary, an
+  // extensionless build file — and demand a fix that does not exist: no edit
+  // adds a trailing newline to a PNG.
+  const byPath = new Map()
+  for (const file of corpus) {
+    const found = entry(file)
+    byPath.set(file.relPath, found)
+    byPath.set(found.relPath, found)
+  }
+  return staged.flatMap(relPath => {
+    const file = byPath.get(relPath)
+    return file === undefined ? [] : [file]
+  })
 }
 
 /**

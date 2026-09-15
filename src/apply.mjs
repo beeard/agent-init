@@ -121,13 +121,27 @@ function appendFile(file, { force, dryRun }) {
 }
 
 /**
+ * Name a JSON value's shape, so a refusal can say what clashed.
+ * @param value - Any parsed JSON value.
+ * @returns A short noun phrase.
+ */
+function shapeOf(value) {
+  if (isPlainObject(value)) return 'an object'
+  if (Array.isArray(value)) return 'an array'
+  if (value === null) return 'null'
+  return `a ${typeof value}`
+}
+
+/**
  * Merge a JSON object into an existing one. A layer uses this to add its own
  * entries to a manifest without restating the entries below it, so a change to
  * a lower layer's list cannot leave the higher layer's copy stale.
  *
  * A key whose value is an object on both sides merges one level deeper, so
  * several layers can each contribute to one shared value. Every other key is
- * replaced by the incoming value.
+ * replaced by the incoming value. A key the two sides disagree about the shape
+ * of — one object, the other not — is refused rather than resolved: composing
+ * and replacing are different intents, and the shapes are what tell them apart.
  *
  * @param file - A `merge` action whose content parses as a JSON object.
  * @param options - Overwrite and dry-run flags.
@@ -148,7 +162,21 @@ function mergeJson(file, { force, dryRun }) {
   const merged = { ...base }
   for (const [key, value] of Object.entries(incoming)) {
     const held = base[key]
-    merged[key] = isPlainObject(held) && isPlainObject(value) ? { ...held, ...value } : value
+    const heldIsObject = isPlainObject(held)
+    const valueIsObject = isPlainObject(value)
+    if (Object.hasOwn(base, key) && heldIsObject !== valueIsObject) {
+      // Guessing here loses data in silence. Writing the template's shape over
+      // a scalar on disk drops what the file held, and reading a scalar as a
+      // shared value sums it into entries no layer declared. A repository that
+      // adopted an older form of the same file is exactly the case the merge
+      // cannot resolve, because only the file's author knows which form won.
+      throw new Error(
+        `${file.relPath}: "${key}" is ${shapeOf(held)} in the file and ${shapeOf(value)} in the template, `
+        + 'and neither form can be merged into the other. Convert the entry by hand, or delete the file '
+        + 'and re-run to rebuild it from the templates; an entry they do not declare is lost with it.',
+      )
+    }
+    merged[key] = heldIsObject && valueIsObject ? { ...held, ...value } : value
   }
   if (!dryRun) {
     mkdirSync(dirname(file.path), { recursive: true })

@@ -163,7 +163,18 @@ function main(argv) {
     architecture: options.architecture,
     lenient: options.lenient,
   })
-  const report = applyPlan(plan, options)
+  let report
+  try {
+    report = applyPlan(plan, options)
+  } catch (error) {
+    // A merge that cannot compose the file's form with the template's stops the
+    // run. Say what was refused and what survived it: the actions before this
+    // one have already been applied, and a target described as untouched would
+    // be a second false report on top of the first.
+    process.stderr.write(`agent-init: ${error instanceof Error ? error.message : String(error)}\n`)
+    process.stderr.write(`  Nothing further was written to ${options.target}; files written before the conflict are kept.\n`)
+    return 2
+  }
 
   process.stdout.write(`agent-init: ${options.dryRun ? 'plan for' : 'scaffolded'} ${options.target}\n\n`)
   process.stdout.write(`${renderReport(report, options.dryRun)}\n\n`)

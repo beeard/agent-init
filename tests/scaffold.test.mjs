@@ -178,6 +178,37 @@ test('--force overwrites existing files', () => {
   }
 })
 
+test('refuses to merge a key the file and the template disagree about', () => {
+  const repo = scaffold(['--name', 'demo', '--stack', 'python'])
+  try {
+    const manifestPath = join(repo, 'scripts', 'gates', 'doc-budgets.manifest.json')
+    // The form a repository adopted under the previous release holds: one
+    // absolute ceiling per document, with no layer to attribute it to.
+    writeFileSync(manifestPath, `${JSON.stringify({ 'AGENTS.md': 890 }, null, 2)}\n`, 'utf8')
+    const result = runCli(['.', '--stack', 'go'], repo)
+    assert.equal(result.code, 2)
+    assert.match(result.output, /"AGENTS\.md" is a number in the file and an object in the template/u)
+    // The refusal is raised before the file is written, so nothing was
+    // composed over the value that could not be composed with.
+    assert.deepEqual(JSON.parse(readFileSync(manifestPath, 'utf8')), { 'AGENTS.md': 890 })
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('merges a shared value across layers instead of replacing it', () => {
+  const repo = scaffold(['--name', 'demo', '--stack', 'python'])
+  try {
+    assert.equal(runCli(['.', '--stack', 'go'], repo).code, 0)
+    const manifest = JSON.parse(readFileSync(join(repo, 'scripts', 'gates', 'doc-budgets.manifest.json'), 'utf8'))
+    // Both layers' shares survive the second run; the earlier one is not the
+    // value that "wins".
+    assert.deepEqual(manifest['AGENTS.md'], { base: 1200, python: 290, go: 260 })
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
 test('installs an executable pre-commit hook', () => {
   const repo = scaffold()
   try {

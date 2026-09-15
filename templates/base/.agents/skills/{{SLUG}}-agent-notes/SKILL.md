@@ -115,7 +115,7 @@ When reviewing records rather than writing one:
 Run the gates:
 
 ```sh
-node scripts/gates/run.mjs --group fast
+node scripts/gates/run.mjs --group commit
 ```
 
 Report which records you added, updated, superseded, or archived, and why.

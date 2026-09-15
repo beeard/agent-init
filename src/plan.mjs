@@ -34,9 +34,13 @@ const APPEND_SUFFIX = '.append'
 
 /**
  * A suffix marking a template merged into the file named by the rest of the
- * path. Merging is a shallow object merge, later keys winning, so a layer adds
- * its own entries to a manifest without having to restate the ones below it —
- * and without breaking when a lower layer's entries change.
+ * path. A layer adds its own entries to a manifest without having to restate
+ * the ones below it — and without breaking when a lower layer's entries change.
+ *
+ * A key holding an object on both sides merges one level deeper, so several
+ * layers can contribute to one shared value; every other key is replaced. A key
+ * whose shape the two sides disagree about is refused rather than resolved —
+ * see `mergeJson` in `apply.mjs`.
  */
 const MERGE_SUFFIX = '.merge'
 
