@@ -1,4 +1,6 @@
 {
-  "AGENTS.md": 1200,
+  "AGENTS.md": {
+    "rust": 275
+  },
   "docs/testing.md": 740
 }

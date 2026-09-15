@@ -121,10 +121,14 @@ function appendFile(file, { force, dryRun }) {
 }
 
 /**
- * Merge a JSON object into an existing one, shallowly, with the incoming keys
- * winning. A layer uses this to add its own entries to a manifest without
- * restating the entries below it, so a change to a lower layer's list cannot
- * leave the higher layer's copy stale.
+ * Merge a JSON object into an existing one. A layer uses this to add its own
+ * entries to a manifest without restating the entries below it, so a change to
+ * a lower layer's list cannot leave the higher layer's copy stale.
+ *
+ * A key whose value is an object on both sides merges one level deeper, so
+ * several layers can each contribute to one shared value. Every other key is
+ * replaced by the incoming value.
+ *
  * @param file - A `merge` action whose content parses as a JSON object.
  * @param options - Overwrite and dry-run flags.
  * @returns Outcome entry.
@@ -137,7 +141,15 @@ function mergeJson(file, { force, dryRun }) {
   const existing = existsSync(file.path) ? readJson(file.path) : {}
   const base = isPlainObject(existing) ? existing : {}
   const added = Object.keys(incoming).filter(key => !Object.hasOwn(base, key))
-  const merged = { ...base, ...incoming }
+  // A key holding an object on both sides merges one level deeper, so a layer
+  // contributes its own entry to a shared value instead of replacing it. The
+  // document budgets rely on this: several layers append to the same document,
+  // and each declares the share of the ceiling it needs.
+  const merged = { ...base }
+  for (const [key, value] of Object.entries(incoming)) {
+    const held = base[key]
+    merged[key] = isPlainObject(held) && isPlainObject(value) ? { ...held, ...value } : value
+  }
   if (!dryRun) {
     mkdirSync(dirname(file.path), { recursive: true })
     writeText(file.path, toJson(merged))

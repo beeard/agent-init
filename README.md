@@ -41,6 +41,7 @@ CLAUDE.md                     → AGENTS.md
 docs/
   AGENTS.md                   the documentation standard: tiers, budgets, slop checklist
   architecture.md             the system map, as a skeleton to fill in
+  defensive-patterns.md       bug classes that shipped, stated as the rule that prevents recurrence
 scripts/gates/                the checks, zero dependencies
 .githooks/pre-commit          what runs on every commit, installed and activated
 ```
@@ -99,6 +100,7 @@ Zero runtime dependencies, plain Node ESM, each runnable on its own. [templates/
 | `verify-agent-note-format.mjs` | commit, full | Bad header, missing sections, a decision recorded without its alternatives, proposal-era headings in a shipped record |
 | `verify-md-links.mjs` | commit, full | A relative link whose target does not exist |
 | `verify-md-wrap.mjs` | commit, full | A prose paragraph spanning more than one physical line |
+| `verify-final-newline.mjs` | commit, full | A file not ending in exactly one newline |
 | `verify-doc-budgets.mjs` | full | A standing document over its word ceiling, or a budgeted document that vanished |
 | `verify-python-docstrings.mjs` | commit, full | A public Python definition without a docstring — advisory |
 | `verify-go-docstrings.mjs` | commit, full | An exported Go declaration without a doc comment — advisory |
@@ -132,3 +134,5 @@ Rust's gate runs in the `full` group only. `missing_docs` is a per-crate lint, s
 ## Design
 
 See [docs/design.md](docs/design.md) for why the tool is built the way it is, and [.agents/notes/](.agents/notes/README.md) for the decisions behind it.
+
+[docs/deliberate-omissions.md](docs/deliberate-omissions.md) records the concepts from the reference implementation that this tool does **not** ship, what each one solves, and the trigger that would make it worth adopting. It is there so an omission is a decision rather than an oversight.

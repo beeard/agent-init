@@ -24,6 +24,7 @@ import { fileURLToPath } from 'node:url'
 import { walkAgentNoteTree } from '../templates/base/scripts/gates/agent-note-tree.mjs'
 import { checkAgentNoteFormat } from '../templates/base/scripts/gates/verify-agent-note-format.mjs'
 import { checkDocBudgets } from '../templates/base/scripts/gates/verify-doc-budgets.mjs'
+import { checkFinalNewline } from '../templates/base/scripts/gates/verify-final-newline.mjs'
 import { checkMarkdownLinks } from '../templates/base/scripts/gates/verify-md-links.mjs'
 import { checkMarkdownWrap } from '../templates/base/scripts/gates/verify-md-wrap.mjs'
 import { applyPlan } from '../src/apply.mjs'
@@ -44,6 +45,7 @@ function runGates(root, label) {
   const wrap = checkMarkdownWrap(root)
   const links = checkMarkdownLinks(root)
   const budgets = checkDocBudgets(root)
+  const newline = checkFinalNewline(root)
   const tag = message => `${label}${message}`
 
   return [
@@ -58,6 +60,11 @@ function runGates(root, label) {
       name: 'verify-md-links',
       checked: `${links.checked} file(s)`,
       failures: links.violations.map(v => tag(`${v.relPath}:${v.line}  ${v.target} — ${v.reason}`)),
+    },
+    {
+      name: 'verify-final-newline',
+      checked: `${newline.checked} file(s)`,
+      failures: newline.violations.map(v => tag(`${v.relPath}  ${v.reason}`)),
     },
     { name: 'verify-doc-budgets', checked: `${budgets.count} document(s)`, failures: budgets.failures.map(tag) },
   ]
@@ -101,6 +108,11 @@ function scaffolds() {
     combinations.push({ label: `[${name}] `, stack: [name], architecture: false })
     combinations.push({ label: `[${name}+arch] `, stack: [name], architecture: true })
   }
+  // Every layer at once. A layer that replaces a shared value instead of
+  // contributing to it composes correctly for one layer and breaks here, which
+  // is how the document budgets were found overwriting each other.
+  combinations.push({ label: '[all] ', stack: [...STACKS], architecture: true })
+  combinations.push({ label: '[two stacks] ', stack: [...STACKS].slice(0, 2), architecture: false })
   return combinations.map(({ label, ...options }) => ({ label, options }))
 }
 

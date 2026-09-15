@@ -24,6 +24,7 @@ Every fact has one home: the tier whose job it is. Everywhere else links there.
 | Root `AGENTS.md` | Standing orders an agent needs in context every session, one to three lines each, linking the owner | Stories, worked examples, procedures, anything restated from a linked home |
 | Subtree `AGENTS.md` | Orders specific to that subtree | Rules the root file already carries |
 | `docs/architecture.md` | The system map: how the parts compose, the core modules, the seams, and where new behavior attaches | Type definitions, per-module detail, decision rationale |
+| `docs/defensive-patterns.md` | Bug classes that shipped, stated as the rule that prevents recurrence | Style preferences, and anything a linter or type checker already enforces |
 | Decision records | The why, the what was given up, and the required verification | Migration plans and acceptance checklists once the decision shipped |
 | Per-module README | That module's contract: configuration, semantics, limitations, extension points | Restated signatures, other modules' concerns |
 | Tutorials and guides | Step-by-step procedures with numbered verification steps | Design rationale — link the decision record instead |

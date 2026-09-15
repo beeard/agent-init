@@ -1,4 +1,6 @@
 {
-  "AGENTS.md": 1180,
+  "AGENTS.md": {
+    "go": 260
+  },
   "docs/testing.md": 700
 }

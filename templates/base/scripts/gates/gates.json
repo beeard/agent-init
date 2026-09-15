@@ -1,22 +1,43 @@
 {
   "agent-note-tree.mjs": {
-    "groups": ["commit", "full"],
+    "groups": [
+      "commit",
+      "full"
+    ],
     "description": "decision-record layout"
   },
   "verify-agent-note-format.mjs": {
-    "groups": ["commit", "full"],
+    "groups": [
+      "commit",
+      "full"
+    ],
     "description": "decision-record format"
   },
   "verify-md-links.mjs": {
-    "groups": ["commit", "full"],
+    "groups": [
+      "commit",
+      "full"
+    ],
     "description": "relative Markdown links"
   },
+  "verify-final-newline.mjs": {
+    "groups": [
+      "commit",
+      "full"
+    ],
+    "description": "exactly one trailing newline per file"
+  },
   "verify-md-wrap.mjs": {
-    "groups": ["commit", "full"],
+    "groups": [
+      "commit",
+      "full"
+    ],
     "description": "one physical line per paragraph"
   },
   "verify-doc-budgets.mjs": {
-    "groups": ["full"],
+    "groups": [
+      "full"
+    ],
     "description": "document word ceilings"
   }
 }

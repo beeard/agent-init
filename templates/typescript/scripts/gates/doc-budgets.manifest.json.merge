@@ -1,4 +1,6 @@
 {
-  "AGENTS.md": 1200,
+  "AGENTS.md": {
+    "typescript": 260
+  },
   "docs/testing.md": 750
 }

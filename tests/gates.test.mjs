@@ -66,7 +66,7 @@ test('a freshly scaffolded repository passes every gate', () => {
   withRepo({ args: ['--with-architecture'] }, (repo) => {
     const result = runSuite(repo)
     assert.equal(result.code, 0, result.output)
-    assert.match(result.output, /5 gate\(s\) passed/u)
+    assert.match(result.output, /6 gate\(s\) passed/u)
   })
 })
 
@@ -74,7 +74,7 @@ test('the commit group runs a strict subset', () => {
   withRepo({}, (repo) => {
     const result = runSuite(repo, 'commit')
     assert.equal(result.code, 0, result.output)
-    assert.match(result.output, /4 gate\(s\) passed/u)
+    assert.match(result.output, /5 gate\(s\) passed/u)
     assert.doesNotMatch(result.output, /verify-doc-budgets/u)
   })
 })
@@ -454,4 +454,86 @@ test('the python and architecture layers both reach AGENTS.md', () => {
   } finally {
     removeSandbox(repo)
   }
+})
+
+test('a file without a trailing newline is rejected', () => {
+  withRepo({}, (repo) => {
+    writeFileSync(join(repo, 'docs', 'bare.md'), '# Title\n\nno newline at the end', 'utf8')
+    const result = runGate(repo, 'verify-final-newline.mjs')
+    assert.equal(result.code, 1)
+    assert.match(result.output, /docs\/bare\.md\s+no trailing newline/u)
+  })
+})
+
+test('a file with more than one trailing newline is rejected', () => {
+  withRepo({}, (repo) => {
+    writeFileSync(join(repo, 'docs', 'extra.md'), '# Title\n\nbody\n\n', 'utf8')
+    const result = runGate(repo, 'verify-final-newline.mjs')
+    assert.equal(result.code, 1)
+    assert.match(result.output, /docs\/extra\.md\s+more than one trailing newline/u)
+  })
+})
+
+test('a file ending in exactly one newline is accepted', () => {
+  withRepo({}, (repo) => {
+    writeFileSync(join(repo, 'docs', 'fine.md'), '# Title\n\nbody\n', 'utf8')
+    assert.equal(runGate(repo, 'verify-final-newline.mjs').code, 0)
+  })
+})
+
+test('an empty file is not a newline violation', () => {
+  withRepo({}, (repo) => {
+    writeFileSync(join(repo, 'docs', 'empty.md'), '', 'utf8')
+    assert.equal(runGate(repo, 'verify-final-newline.mjs').code, 0)
+  })
+})
+
+test('build and dependency directories are not walked', () => {
+  withRepo({}, (repo) => {
+    for (const dir of ['node_modules', 'dist', 'build', 'target', 'vendor', 'coverage']) {
+      mkdirSync(join(repo, dir), { recursive: true })
+      writeFileSync(join(repo, dir, 'x.md'), '# no newline', 'utf8')
+    }
+    assert.equal(runGate(repo, 'verify-final-newline.mjs').code, 0)
+  })
+})
+
+test('--staged restricts the newline check to staged files', () => {
+  withRepo({}, (repo) => {
+    writeFileSync(join(repo, 'docs', 'old.md'), '# pre-existing', 'utf8')
+    writeFileSync(join(repo, 'docs', 'new.md'), 'clean\n', 'utf8')
+    assert.equal(spawnSync('git', ['-C', repo, 'add', 'docs/new.md'], { encoding: 'utf8' }).status, 0)
+    const result = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-final-newline.mjs'), '--staged'],
+      { cwd: repo, encoding: 'utf8' })
+    assert.equal(result.status, 0, result.stdout + result.stderr)
+    assert.match(result.stdout, /1 file\(s\) checked/u)
+  })
+})
+
+test('the budget gate sums per-layer contributions', () => {
+  withRepo({}, (repo) => {
+    const manifestPath = join(repo, 'scripts', 'gates', 'doc-budgets.manifest.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    // A shared document is budgeted by contribution, because a layer that
+    // replaced the value would cut off every layer below it.
+    manifest['docs/AGENTS.md'] = { base: 500, extra: 400 }
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+    const result = runGate(repo, 'verify-doc-budgets.mjs')
+    assert.equal(result.code, 0, result.output)
+    const listed = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-doc-budgets.mjs'), '--list'],
+      { cwd: repo, encoding: 'utf8' })
+    assert.match(listed.stdout, /base 500 \+ extra 400/u)
+  })
+})
+
+test('a contribution entry that is not a positive integer is rejected', () => {
+  withRepo({}, (repo) => {
+    const manifestPath = join(repo, 'scripts', 'gates', 'doc-budgets.manifest.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    manifest['docs/AGENTS.md'] = { base: 0 }
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+    const result = runGate(repo, 'verify-doc-budgets.mjs')
+    assert.equal(result.code, 1)
+    assert.match(result.output, /contribution "base" must be a positive integer/u)
+  })
 })

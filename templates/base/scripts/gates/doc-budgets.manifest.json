@@ -1,5 +1,8 @@
 {
-  "AGENTS.md": 890,
+  "AGENTS.md": {
+    "base": 1200
+  },
   "docs/AGENTS.md": 890,
-  "docs/architecture.md": 1000
+  "docs/architecture.md": 800,
+  "docs/defensive-patterns.md": 700
 }

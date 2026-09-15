@@ -1,4 +1,6 @@
 {
-  "AGENTS.md": 1130,
+  "AGENTS.md": {
+    "python": 290
+  },
   "docs/testing.md": 780
 }

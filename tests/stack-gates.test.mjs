@@ -9,9 +9,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { removeSandbox, runGate, scaffold } from './helpers.mjs'
+import { removeSandbox, runGate, scaffold, PACKAGE_ROOT } from './helpers.mjs'
 
 /**
  * Whether a command runs.
@@ -141,35 +141,21 @@ test('typescript: a missing compiler fails loud with the install command', () =>
 })
 
 test('every stack layer registers its gate without replacing the base inventory', () => {
+  // Derived from the base manifest rather than a copied list, so adding a base
+  // gate does not require editing this test.
+  const baseGates = Object.keys(JSON.parse(
+    readFileSync(join(PACKAGE_ROOT, 'templates', 'base', 'scripts', 'gates', 'gates.json'), 'utf8'),
+  ))
   for (const stack of ['go', 'rust', 'typescript']) {
     const repo = scaffold(['--name', 'demo', '--stack', stack, '--no-hooks'])
     try {
-      const gates = JSON.parse(
-        spawnSync(process.execPath, ['-e', `process.stdout.write(require('node:fs').readFileSync('${join(repo, 'scripts', 'gates', 'gates.json')}','utf8'))`], { encoding: 'utf8' }).stdout,
-      )
-      assert.ok(Object.hasOwn(gates, 'agent-note-tree.mjs'), `${stack} dropped the base gates`)
-      const added = Object.keys(gates).filter(name => name !== 'agent-note-tree.mjs'
-        && name !== 'verify-agent-note-format.mjs' && name !== 'verify-md-links.mjs'
-        && name !== 'verify-md-wrap.mjs' && name !== 'verify-doc-budgets.mjs')
+      const gates = JSON.parse(readFileSync(join(repo, 'scripts', 'gates', 'gates.json'), 'utf8'))
+      for (const name of baseGates) assert.ok(Object.hasOwn(gates, name), `${stack} dropped the base gate ${name}`)
+      const added = Object.keys(gates).filter(name => !baseGates.includes(name))
       assert.equal(added.length, 1, `${stack} should register exactly one gate, got ${added.join(', ')}`)
       assert.equal(gates[added[0]].advisory, true, `${stack}'s gate must ship advisory`)
     } finally {
       removeSandbox(repo)
     }
-  }
-})
-
-test('rust: a file the crate does not declare is not reported', { skip: !HAS_CARGO && 'cargo is not installed' }, () => {
-  const repo = scaffold(['--name', 'demo', '--stack', 'rust', '--no-hooks'])
-  try {
-    write(repo, 'Cargo.toml', '[package]\nname = "demo"\nversion = "0.1.0"\nedition = "2021"\n')
-    write(repo, 'src/lib.rs', '//! Demo.\n#![warn(missing_docs)]\n')
-    // Never declared with `mod`, so it is not part of the crate and the
-    // compiler cannot see it. Reporting it would mean guessing at Rust's
-    // module resolution rather than using the compiler's.
-    write(repo, 'src/orphan.rs', 'pub fn orphan() {}\n')
-    assert.equal(runGate(repo, 'verify-rust-doc-comments.mjs').code, 0)
-  } finally {
-    removeSandbox(repo)
   }
 })

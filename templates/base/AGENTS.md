@@ -6,6 +6,7 @@ Standing orders for agents working in {{PROJECT}}: the rules needed in context e
 
 - **Read a file before editing it.** Every rule below assumes you know what is already there.
 - **[docs/architecture.md](docs/architecture.md) is the map** of how the system is put together. Read it before changing the code it describes.
+- **[docs/defensive-patterns.md](docs/defensive-patterns.md) is required reading** before lifecycle, concurrency, subprocess, or teardown work. Each entry is a bug class that shipped somewhere, not a style preference.
 - **Back up configuration before editing it** when the change falls outside version control: `<file>.bak.<unix-time>`.
 - **Never edit a vendored or generated file by hand.** Find the source it comes from and change that.
 
@@ -17,6 +18,8 @@ Standing orders for agents working in {{PROJECT}}: the rules needed in context e
 - **Explicit beats implicit.** Put a default where it is decided and visible, as a named resolution step — never as a hidden fallback buried inside the operation.
 - **Fail loud.** A missing referent, an unknown variant, or an unreachable branch is an error, never a silent skip. An empty `catch` names the error and why, and keeps its `try` to one statement.
 - **Switch on discriminant tags**, and end a closed union with an exhaustive check. An open, extensible union falls through a documented default instead.
+- **Flag known issues with `FIXME`, `TODO`, or `XXX`**, by urgency: `FIXME` blocks a release, `TODO` is soon, `XXX` is someday. Pick the tag that matches, so anyone scanning can tell a release blocker from a maybe. A clean scan is what makes the tags worth writing.
+- **Every file ends with exactly one newline.** `verify-final-newline` enforces it; an editor setting that adds one automatically is the easiest way to comply.
 - **Comment the contract, not the reasoning.** Keep behavior, failure, timing, ownership, and the non-obvious orientation. Delete narration, restatement of the code, and the path you took to arrive at it.
 - **Keep comments local.** Do not expand an unrelated comment or explain distant behavior that the reader does not need here.
 
@@ -41,22 +44,28 @@ Standing orders for agents working in {{PROJECT}}: the rules needed in context e
 - **A record states what was rejected and why.** A decision recorded without its alternatives invites re-litigation, which is the failure these records exist to prevent.
 - **A record is superseded, never edited into a different decision.** Move it between lifecycles as its status changes, and keep both records cross-linked.
 
+## Pull requests
+
+- **One `kind/*` label, and every materially affected `area/*`.** The kind records the dominant intent: `feature` (adds or intentionally changes behavior), `bug-fix`, `doc`, `testing`, `cleanup` (preserves behavior while simplifying), or `dependency`. Tests and cleanup that accompany a feature do not change its kind.
+- **Areas name durable subjects, not paths the change happened to touch.** Carrying two areas is normal for a change spanning two domains; an umbrella plus a narrower label for the same domain is not. Create a new `area/<name>` when nothing existing honestly covers a durable subject, and say so in the description rather than reusing a wrong one.
+- **Split independent changes.** An unrelated fix in the same branch hides what broke and blocks a clean revert. Fix the change that introduced a defect rather than layering a correction on top.
+- **Do not rewrite published history without a lease.** See the `{{SLUG}}-pre-push-checks` skill; a raw force-push discards a concurrent update silently.
+
 ## Checks
 
-The gate suite, which is what CI runs:
+The whole-repository suite, which is what CI runs:
 
 ```sh
 node scripts/gates/run.mjs
 ```
 
-The fast subset, which the pre-commit hook runs:
+The subset the pre-commit hook runs:
 
 ```sh
-node scripts/gates/run.mjs --group fast
-node scripts/gates/verify-md-wrap.mjs --staged
+node scripts/gates/run.mjs --group commit
 ```
 
-The second command checks only the Markdown you are about to commit, which is why the hook stays fast on a large repository. Run the full suite before a push.
+Gates in the `commit` group receive `--staged`, so they inspect only what you are about to commit. That is what keeps the hook fast on a large repository; run the full suite before a push.
 
 Scope a change against a base branch before deciding what evidence it needs:
 
