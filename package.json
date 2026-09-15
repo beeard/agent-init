@@ -1,0 +1,34 @@
+{
+  "name": "agent-init",
+  "version": "0.1.0",
+  "description": "Scaffold an agent-operating structure into any repository: standing orders, decision records, skills, and the gates that enforce them.",
+  "type": "module",
+  "bin": {
+    "agent-init": "./src/cli.mjs"
+  },
+  "exports": {
+    ".": "./src/plan.mjs",
+    "./apply": "./src/apply.mjs"
+  },
+  "files": [
+    "src",
+    "templates",
+    "README.md",
+    "AGENTS.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check": "node scripts/check.mjs"
+  },
+  "keywords": [
+    "agents",
+    "agents.md",
+    "adr",
+    "scaffold",
+    "decision-records"
+  ],
+  "license": "MIT"
+}

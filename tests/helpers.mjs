@@ -1,0 +1,82 @@
+/** Shared helpers for the scaffolder's own tests. */
+
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+export const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+export const CLI = join(PACKAGE_ROOT, 'src', 'cli.mjs')
+
+/**
+ * Create a throwaway directory containing an empty Git repository.
+ * @returns Absolute path to the sandbox.
+ */
+export function makeSandbox() {
+  const dir = mkdtempSync(join(tmpdir(), 'agent-init-test-'))
+  spawnSync('git', ['init', '-q'], { cwd: dir })
+  return dir
+}
+
+/**
+ * Remove a sandbox created by `makeSandbox`.
+ * @param dir - Absolute sandbox path.
+ */
+export function removeSandbox(dir) {
+  rmSync(dir, { recursive: true, force: true })
+}
+
+/**
+ * Run the scaffold CLI.
+ * @param args - Arguments after the script path.
+ * @param cwd - Working directory for the child process.
+ * @returns Exit code and combined output.
+ */
+export function runCli(args, cwd = PACKAGE_ROOT) {
+  const result = spawnSync(process.execPath, [CLI, ...args], { cwd, encoding: 'utf8' })
+  return { code: result.status ?? 1, output: `${result.stdout}${result.stderr}` }
+}
+
+/**
+ * Run one gate inside a scaffolded repository.
+ * @param repo - Absolute path to the scaffolded repository.
+ * @param script - Gate filename under `scripts/gates`.
+ * @returns Exit code and combined output.
+ */
+export function runGate(repo, script) {
+  const result = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', script)], {
+    cwd: repo,
+    encoding: 'utf8',
+  })
+  return { code: result.status ?? 1, output: `${result.stdout}${result.stderr}` }
+}
+
+/**
+ * Run the whole gate suite inside a scaffolded repository.
+ * @param repo - Absolute path to the scaffolded repository.
+ * @param group - `fast` or `all`.
+ * @returns Exit code and combined output.
+ */
+export function runSuite(repo, group = 'all') {
+  const result = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'run.mjs'), '--group', group], {
+    cwd: repo,
+    encoding: 'utf8',
+  })
+  return { code: result.status ?? 1, output: `${result.stdout}${result.stderr}` }
+}
+
+/**
+ * Scaffold a repository into a fresh sandbox.
+ * @param args - Extra CLI arguments.
+ * @returns Absolute path to the scaffolded repository.
+ */
+export function scaffold(args = []) {
+  const repo = makeSandbox()
+  const result = runCli(['.', ...args], repo)
+  if (result.code !== 0) {
+    removeSandbox(repo)
+    throw new Error(`scaffold failed (${result.code}):\n${result.output}`)
+  }
+  return repo
+}

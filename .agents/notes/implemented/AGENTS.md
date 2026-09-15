@@ -1,0 +1,1 @@
+../../../templates/base/.agents/notes/implemented/AGENTS.md

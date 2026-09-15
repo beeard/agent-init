@@ -1,0 +1,18 @@
+{
+  "notesRoot": ".agents/notes",
+  "markdownGlobs": [
+    "AGENTS.md",
+    "README.md",
+    "docs/**/*.md",
+    ".agents/notes/**/*.md"
+  ],
+  "skipGlobs": [
+    ".agents/notes/archived/**"
+  ],
+  "linkGlobs": [
+    "AGENTS.md",
+    "README.md",
+    "docs/**/*.md",
+    ".agents/notes/**/*.md"
+  ]
+}

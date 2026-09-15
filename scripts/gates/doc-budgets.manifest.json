@@ -1,0 +1,11 @@
+{
+  "AGENTS.md": 800,
+  "README.md": 900,
+  "docs/design.md": 1000,
+  "templates/base/AGENTS.md": 890,
+  "templates/base/docs/AGENTS.md": 890,
+  "templates/base/docs/architecture.md": 1000,
+  "templates/architecture/docs/architecture.md": 1000,
+  "templates/architecture/docs/composition.md": 800,
+  "templates/architecture/docs/glossary.md": 750
+}

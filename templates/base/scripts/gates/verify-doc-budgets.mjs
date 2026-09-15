@@ -1,0 +1,85 @@
+/**
+ * Enforce the word ceilings in `doc-budgets.manifest.json`.
+ *
+ * A listed document that no longer exists fails too: a budgeted file that was
+ * renamed or deleted must have its entry updated in the same change, or the
+ * budget silently stops covering anything.
+ *
+ * `--list` prints current usage without failing.
+ */
+
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { isMain } from './lib/repo-files.mjs'
+
+const ROOT = resolve(import.meta.dirname, '..', '..')
+const MANIFEST = resolve(ROOT, 'scripts', 'gates', 'doc-budgets.manifest.json')
+
+/**
+ * Count whitespace-delimited tokens, matching `wc -w`.
+ * @param text - File contents.
+ * @returns The word count.
+ */
+function countWords(text) {
+  return text.split(/\s+/u).filter(Boolean).length
+}
+
+/**
+ * Compare every budgeted document against its ceiling.
+ * @param root - Absolute repository root.
+ * @returns Rows for display and one message per failure.
+ */
+export function checkDocBudgets(root) {
+  const manifest = JSON.parse(readFileSync(resolve(root, 'scripts', 'gates', 'doc-budgets.manifest.json'), 'utf8'))
+  const rows = []
+  const failures = []
+
+  for (const [relPath, ceiling] of Object.entries(manifest)) {
+    if (!Number.isInteger(ceiling) || ceiling <= 0) {
+      rows.push(`BAD   ${'—'.padStart(6)} / ${String(ceiling).padEnd(6)} ${relPath}`)
+      failures.push(`${relPath}: ceiling must be a positive integer, got ${String(ceiling)}`)
+      continue
+    }
+    const abs = resolve(root, relPath)
+    if (!existsSync(abs)) {
+      rows.push(`MISS  ${'—'.padStart(6)} / ${String(ceiling).padEnd(6)} ${relPath}`)
+      failures.push(`${relPath}: budgeted document does not exist (update doc-budgets.manifest.json in the same change)`)
+      continue
+    }
+    const words = countWords(readFileSync(abs, 'utf8'))
+    rows.push(`${words <= ceiling ? 'ok  ' : 'OVER'}  ${String(words).padStart(6)} / ${String(ceiling).padEnd(6)} ${relPath}`)
+    if (words > ceiling) {
+      failures.push(`${relPath}: ${words} words exceeds the ${ceiling}-word ceiling — relocate, then condense, then justify a new ceiling`)
+    }
+  }
+
+  return { rows, failures, count: Object.keys(manifest).length }
+}
+
+/**
+ * Run the gate as a command.
+ * @returns Process exit code.
+ */
+function main() {
+  const listOnly = process.argv.includes('--list')
+  const { rows, failures, count } = checkDocBudgets(ROOT)
+  if (listOnly) {
+    console.log(rows.join('\n'))
+    return 0
+  }
+  if (failures.length > 0) {
+    console.error('verify-doc-budgets failed:\n')
+    for (const failure of failures) console.error(`  ${failure}`)
+    console.error('\nSee docs/AGENTS.md for the relocation-first rule.')
+    return 1
+  }
+  console.log(`verify-doc-budgets: ${count} budgeted document(s) within ceiling.`)
+  return 0
+}
+
+if (isMain(import.meta.url)) {
+  process.exitCode = main()
+}
+
+/** Exported for tests. */
+export { MANIFEST }

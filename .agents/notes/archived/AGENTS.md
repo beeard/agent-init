@@ -1,0 +1,1 @@
+../../../templates/base/.agents/notes/archived/AGENTS.md

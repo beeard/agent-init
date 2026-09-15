@@ -1,0 +1,18 @@
+
+## Architecture
+
+These orders apply once the system is composed from plugins. The map is [docs/architecture.md](docs/architecture.md); the vocabulary is [docs/glossary.md](docs/glossary.md).
+
+- **Compose; do not patch a core.** New behavior attaches to a documented extension point. Changing the core operation is an architecture change, and [docs/architecture.md](docs/architecture.md) updates in the same change.
+- **A capability is a seam, and a seam has three roles.** Adding a capability means designing the Service Definition, at least one Provider, and the Consumer together. One role alone is not a seam.
+- **Registrations are effects.** Every contribution goes through the context so it unwinds on unload, and a registry's registration returns its own disposer. Prove disposal by unloading and observing removal.
+- **Depend on definitions, never on a concrete provider.** A consumer injects the service; only composition chooses the implementation.
+- **Declare dependencies; never sequence by hand.** A plugin names what it requires and waits.
+- **Model-visible means logged.** Anything reaching a request must be reconstructable from the durable log. A new model-visible input requires a new durable event.
+- **Pick the domain before the event.** Durable facts go in the log; transient facts about work in flight go on the live domain; policy attaches to the seam it governs.
+- **Waterfall listeners call the continuation.** Return without it only when you deliberately own the decision and mean to short-circuit the chain.
+- **Explicit over implicit at every boundary.** Defaulting is a visible resolution step, never a hidden fallback inside the operation.
+- **No hardcoded tunables.** A deployment-varying choice is a validated configuration field. A default constant is not configurability.
+- **Enforce the decision in the operation that makes it.** A filtered list, a facade, or a listener order is not enforcement when another caller can bypass it.
+- **Publish state at its commit point**, and derive caches, views, and notifications from one authoritative source.
+- **Fail loud at load** when the misconfiguration is self-contained; otherwise at the earliest point it can be resolved.
