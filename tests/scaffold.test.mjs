@@ -2,9 +2,9 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, lstatSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { STACKS } from '../src/plan.mjs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { STACKS, buildPlan } from '../src/plan.mjs'
 import { makeSandbox, removeSandbox, runCli, scaffold, PACKAGE_ROOT } from './helpers.mjs'
 
 test('writes the full base tree', () => {
@@ -204,6 +204,59 @@ test('merges a shared value across layers instead of replacing it', () => {
     // Both layers' shares survive the second run; the earlier one is not the
     // value that "wins".
     assert.deepEqual(manifest['AGENTS.md'], { base: 1200, python: 290, go: 260 })
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('two stacks that write one path are refused, and two that append are not', () => {
+  const sandbox = makeSandbox()
+  const templates = join(sandbox, 'templates')
+  /** Write one template file, creating its parents. */
+  const template = (rel, content) => {
+    mkdirSync(dirname(join(templates, rel)), { recursive: true })
+    writeFileSync(join(templates, rel), content, 'utf8')
+  }
+  template('base/AGENTS.md', '# Orders\n')
+  template('alpha/docs/shared.md', 'alpha\n')
+  template('beta/docs/shared.md', 'beta\n')
+  const plan = stack => () => buildPlan({
+    targetDir: sandbox,
+    templatesRoot: templates,
+    projectName: 'demo',
+    skills: [],
+    stack,
+    architecture: false,
+  })
+  try {
+    // `base` above `architecture` is a fixed order, so a replacement there is a
+    // decision. Between stacks there is no order, so the survivor here would be
+    // whichever flag happened to come last.
+    assert.throws(plan(['alpha', 'beta']), /"alpha" and "beta" both write docs\/shared\.md/u)
+    assert.throws(plan(['beta', 'alpha']), /"beta" and "alpha" both write docs\/shared\.md/u)
+
+    // Appending from both is composition: each layer's section is delivered, so
+    // the only thing the order decides is which section is read first.
+    unlinkSync(join(templates, 'beta', 'docs', 'shared.md'))
+    template('alpha/AGENTS.md.append', '## Alpha\n')
+    template('beta/AGENTS.md.append', '## Beta\n')
+    const files = plan(['alpha', 'beta'])().files
+    assert.deepEqual(files.filter(file => file.kind === 'append').map(file => file.layer), ['alpha', 'beta'])
+  } finally {
+    removeSandbox(sandbox)
+  }
+})
+
+test('every stack ships its own testing guide', () => {
+  const repo = scaffold(['--name', 'demo', ...STACKS.flatMap(name => ['--stack', name])])
+  try {
+    for (const name of STACKS) {
+      const guide = readFileSync(join(repo, `docs/testing-${name}.md`), 'utf8')
+      // The guide a language's standing orders link to must be that language's,
+      // not whichever stack happened to be applied last.
+      assert.match(guide, new RegExp(`specific to ${name}`, 'iu'), `docs/testing-${name}.md is another language's guide`)
+    }
+    assert.match(readFileSync(join(repo, 'AGENTS.md'), 'utf8'), /\[docs\/testing-python\.md\]\(docs\/testing-python\.md\)/u)
   } finally {
     removeSandbox(repo)
   }

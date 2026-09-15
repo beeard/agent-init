@@ -315,7 +315,7 @@ function writePython(repo, relPath, content) {
 test('the python stack adds its gate, config, and testing guide', () => {
   const repo = scaffoldPython()
   try {
-    assert.ok(existsSync(join(repo, 'docs/testing.md')))
+    assert.ok(existsSync(join(repo, 'docs/testing-python.md')))
     assert.ok(existsSync(join(repo, 'scripts/gates/verify-python-docstrings.mjs')))
     const gates = JSON.parse(readFileSync(join(repo, 'scripts/gates/gates.json'), 'utf8'))
     assert.ok(Object.hasOwn(gates, 'verify-python-docstrings.mjs'))

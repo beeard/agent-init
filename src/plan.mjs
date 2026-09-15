@@ -121,6 +121,8 @@ export function buildPlan({ targetDir, templatesRoot, projectName, skills, stack
     }
   }
 
+  assertStacksDoNotShare(files, stack)
+
   symlinks.push({
     kind: 'symlink',
     path: resolve(targetDir, 'CLAUDE.md'),
@@ -136,6 +138,48 @@ export function buildPlan({ targetDir, templatesRoot, projectName, skills, stack
     symlinks,
     mergedScripts: mergePackageScripts(targetDir),
     manifest: { version: 1, adopted: variables.DATE, layers, skills, stack, architecture, lenient },
+  }
+}
+
+/**
+ * Refuse a path one stack layer owns and another stack layer also contributes to.
+ *
+ * Stacks are peers and the caller chooses their order, so a shared path is
+ * resolved by the order the flags happened to be typed: the losing layer's
+ * document is never delivered, while the standing orders that link to it are.
+ * That is how four language stacks came to ship one `docs/testing.md` between
+ * them, and no gate saw it — the surviving document and the surviving budget
+ * agreed by construction.
+ *
+ * `base` and `architecture` are a different case and are deliberately allowed:
+ * they are a hierarchy with a fixed order, and a later layer replacing an
+ * earlier one is what a `write` template is for.
+ *
+ * @param files - Planned file actions in layer order.
+ * @param stack - The stack layers this run applies.
+ */
+function assertStacksDoNotShare(files, stack) {
+  const peers = new Set(stack)
+  const first = new Map()
+  for (const file of files) {
+    if (!peers.has(file.layer)) continue
+    const held = first.get(file.relPath)
+    if (held === undefined) {
+      first.set(file.relPath, file)
+      continue
+    }
+    if (held.layer === file.layer) continue
+    // Two appends or two merges compose; a write among them replaces.
+    if (held.kind !== 'write' && file.kind !== 'write') continue
+    const writer = held.kind === 'write' ? held.layer : file.layer
+    const other = held.kind === 'write' ? file.layer : held.layer
+    const clash = held.kind === 'write' && file.kind === 'write'
+      ? `"${held.layer}" and "${file.layer}" both write ${file.relPath}`
+      : `"${writer}" writes ${file.relPath} and "${other}" also contributes to it`
+    throw new Error(
+      `${clash}. Stack order is the caller's choice, so which layer survives would depend on the order `
+      + 'the flags were typed. Give each language its own path, or contribute with .append or .merge.',
+    )
   }
 }
 

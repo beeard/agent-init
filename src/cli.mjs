@@ -154,25 +154,30 @@ function main(argv) {
     return 2
   }
 
-  const plan = buildPlan({
-    targetDir: options.target,
-    templatesRoot: TEMPLATES_ROOT,
-    projectName: options.name,
-    skills: options.skills,
-    stack: options.stack,
-    architecture: options.architecture,
-    lenient: options.lenient,
-  })
+  let plan
   let report
   try {
+    plan = buildPlan({
+      targetDir: options.target,
+      templatesRoot: TEMPLATES_ROOT,
+      projectName: options.name,
+      skills: options.skills,
+      stack: options.stack,
+      architecture: options.architecture,
+      lenient: options.lenient,
+    })
     report = applyPlan(plan, options)
   } catch (error) {
-    // A merge that cannot compose the file's form with the template's stops the
-    // run. Say what was refused and what survived it: the actions before this
-    // one have already been applied, and a target described as untouched would
-    // be a second false report on top of the first.
+    // A plan this tool cannot lay down, or a merge that cannot compose the
+    // file's form with the template's, stops the run. Report it as a refusal
+    // rather than as a crash, and say what survived: once the plan is being
+    // applied, the actions before the failure have already been written, and a
+    // target described as untouched would be a second false report on top of
+    // the first.
     process.stderr.write(`agent-init: ${error instanceof Error ? error.message : String(error)}\n`)
-    process.stderr.write(`  Nothing further was written to ${options.target}; files written before the conflict are kept.\n`)
+    process.stderr.write(plan === undefined
+      ? `  Nothing was written to ${options.target}.\n`
+      : `  Nothing further was written to ${options.target}; files written before the conflict are kept.\n`)
     return 2
   }
 
