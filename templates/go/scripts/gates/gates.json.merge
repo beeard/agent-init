@@ -1,0 +1,7 @@
+{
+  "verify-go-docstrings.mjs": {
+    "groups": ["commit", "full"],
+    "description": "doc comments on exported Go declarations",
+    "advisory": true
+  }
+}

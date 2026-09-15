@@ -27,7 +27,7 @@ import { checkDocBudgets } from '../templates/base/scripts/gates/verify-doc-budg
 import { checkMarkdownLinks } from '../templates/base/scripts/gates/verify-md-links.mjs'
 import { checkMarkdownWrap } from '../templates/base/scripts/gates/verify-md-wrap.mjs'
 import { applyPlan } from '../src/apply.mjs'
-import { buildPlan } from '../src/plan.mjs'
+import { STACKS, buildPlan } from '../src/plan.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, '..')
@@ -93,12 +93,15 @@ function composeScaffold(options) {
  * @returns The scaffold matrix.
  */
 function scaffolds() {
-  return [
-    { label: '[base] ', options: { stack: [], architecture: false } },
-    { label: '[python] ', options: { stack: ['python'], architecture: false } },
-    { label: '[architecture] ', options: { stack: [], architecture: true } },
-    { label: '[python+arch] ', options: { stack: ['python'], architecture: true } },
+  const combinations = [
+    { label: '[base] ', stack: [], architecture: false },
+    { label: '[architecture] ', stack: [], architecture: true },
   ]
+  for (const name of STACKS) {
+    combinations.push({ label: `[${name}] `, stack: [name], architecture: false })
+    combinations.push({ label: `[${name}+arch] `, stack: [name], architecture: true })
+  }
+  return combinations.map(({ label, ...options }) => ({ label, options }))
 }
 
 /**

@@ -50,7 +50,7 @@ The `base` layer is about how agents work: standing orders, decision records, sk
 
 Everything else is a layer on top.
 
-**Stack layers** (`--stack python`) add what is specific to a language: a testing guide, language-specific standing orders, and a gate enforcing a rule that language community already agrees on. The test for whether something belongs here is whether it survives translating into another language.
+**Stack layers** (`--stack <name>`) add what is specific to a language: a testing guide, language-specific standing orders, and a gate enforcing a rule that language's community already agrees on. The test for whether something belongs here is whether it survives translating into another language.
 
 **The architecture layer** (`--with-architecture`) adds how software is composed: plugins, seams, reversible registrations, the model-visible-equals-logged rule. It applies only to systems actually built that way.
 

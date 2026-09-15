@@ -1,0 +1,11 @@
+
+## TypeScript
+
+These orders apply in addition to the general ones above.
+
+- **An exported declaration is public API and carries JSDoc.** State the contract — parameters, return value, thrown errors, and any non-obvious lifetime or ownership — not a restatement of the signature. A leading underscore does not make a declaration private here, so the gate reports every export.
+- **`strict` is on, and `any` needs a reason in a comment.** Prefer `unknown`, then narrow once. An `any` that leaks through a signature defeats the compiler for every caller.
+- **Never silence a real type error with `as`, `@ts-expect-error`, or `!`.** Each one asserts a fact the compiler cannot check, and the assertion is not recorded anywhere a reviewer will find it. Fix the type, or narrow at the source.
+- **Validate at the boundaries that are genuinely untyped**: parsed input, wire data, `JSON.parse`, environment variables, and process arguments. Do not add runtime checks for a value the static type already guarantees — that is cost without a consumer.
+- **No floating promises.** Await them, return them, or explicitly mark the intent with `void`. An unawaited rejection surfaces as an unhandled rejection at an unrelated call site.
+- **Modules are ESM.** Use `.js` extensions in relative imports so the emitted output resolves under Node.

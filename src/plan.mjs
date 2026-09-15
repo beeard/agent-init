@@ -14,7 +14,7 @@ import { readJson, readText, slugify, substitute, today } from './util.mjs'
 export const LAYERS = ['base', 'python', 'architecture']
 
 /** Stack layers, selected by `--stack`. */
-export const STACKS = ['python']
+export const STACKS = ['go', 'python', 'rust', 'typescript']
 
 /** Skills shipped with the base layer, as template directory names. */
 export const BASE_SKILLS = ['agent-notes', 'pre-push-checks', 'prose-standard', 'code-review']
@@ -87,6 +87,14 @@ export function buildPlan({ targetDir, templatesRoot, projectName, skills, stack
   const files = []
   const symlinks = []
   const layers = ['base', ...stack, ...(architecture ? ['architecture'] : [])]
+
+  // A layer with no template directory contributes nothing and reports success.
+  // That is the silent-skip failure the shipped rules forbid, so a declared
+  // layer that contributes no files is an error rather than an empty layer.
+  const empty = layers.filter(layer => layerFiles(templatesRoot, layer).length === 0)
+  if (empty.length > 0) {
+    throw new Error(`no templates found for layer(s): ${empty.join(', ')} (looked under ${templatesRoot})`)
+  }
 
   for (const layer of layers) {
     for (const abs of layerFiles(templatesRoot, layer)) {

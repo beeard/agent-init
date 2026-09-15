@@ -1,0 +1,7 @@
+{
+  "verify-rust-doc-comments.mjs": {
+    "groups": ["full"],
+    "description": "doc comments on public Rust items",
+    "advisory": true
+  }
+}

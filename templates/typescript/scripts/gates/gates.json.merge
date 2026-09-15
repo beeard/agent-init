@@ -1,0 +1,7 @@
+{
+  "verify-typescript-doc-comments.mjs": {
+    "groups": ["commit", "full"],
+    "description": "JSDoc on exported TypeScript declarations",
+    "advisory": true
+  }
+}

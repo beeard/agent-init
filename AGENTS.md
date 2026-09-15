@@ -25,8 +25,8 @@ A layer that restates a lower layer's entries instead of merging goes stale sile
 
 - **Zero runtime dependencies.** The package uses only the Node standard library. A dependency here would have to be installed before the tool that scaffolds a repository could run.
 - **The gates are the specification.** A rule stated in prose in a template must be enforced by a gate in the same template, or it is a suggestion. When the two disagree, the gate is wrong.
+- **A stack gate delegates to that language's own tooling.** Never scan declarations with a regular expression: the findings would be wrong rather than merely incomplete, and a gate whose output is not trusted is not run. Python uses `ast`, Go uses `go/parser`, Rust uses the built-in `missing_docs` lint, TypeScript uses the `typescript` package. A gate that cannot reach its toolchain fails loud; it never reports a clean run it did not perform.
 - **Every gate needs a negative control.** A check that only ever runs green is untested. `tests/gates.test.mjs` breaks one thing per gate and asserts the rejection.
-- **Keep the layers honest.** `templates/base/` must stand alone; the stack and architecture layers add to it, never contradict it.
 - **A stack layer may only add what is specific to that language.** A rule that holds for Python and Go alike belongs in `base`. The test is whether the rule survives translating it into another language.
 - **Comment the contract, not the reasoning.**
 
@@ -38,9 +38,11 @@ This repository runs its own gates against the product it ships:
 npm run check
 ```
 
-That check applies every layer combination — base, python, architecture, and python with architecture — through the real scaffolder into throwaway directories, and runs the shipped gates on the result. If a template would fail the gates in a fresh repository, it fails here first. **A change that makes `npm run check` fail is a defect in the product**, not in the check.
+That check applies every layer combination — base alone, each stack alone, architecture alone, and every stack with architecture — through the real scaffolder into throwaway directories, and runs the shipped gates on the result. If a template would fail the gates in a fresh repository, it fails here first. **A change that makes `npm run check` fail is a defect in the product**, not in the check.
 
 The combinations matter: a layer checked alone passes trivially, because a layer is a partial overlay whose links are written for the composed tree. Only the composed result is what a receiving repository gets.
+
+The matrix is derived from `STACKS`, so registering a stack there is enough to put it under the check. `buildPlan` fails loud when a declared layer contributes no files, and a test asserts every `STACKS` entry has a template directory — a name without templates would otherwise scaffold a base-only tree and report success.
 
 ## Decisions
 

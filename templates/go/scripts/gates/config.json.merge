@@ -1,0 +1,8 @@
+{
+  "goGlobs": ["**/*.go"],
+  "goSkipDirectories": [
+    "vendor",
+    "testdata",
+    "bin"
+  ]
+}

@@ -1,12 +1,15 @@
 {
   "AGENTS.md": 800,
   "docs/design.md": 1320,
-  "README.md": 990,
+  "README.md": 1400,
   "templates/architecture/docs/architecture.md": 1000,
   "templates/architecture/docs/composition.md": 800,
   "templates/architecture/docs/glossary.md": 750,
   "templates/base/AGENTS.md": 890,
   "templates/base/docs/AGENTS.md": 890,
   "templates/base/docs/architecture.md": 1000,
-  "templates/python/docs/testing.md": 780
+  "templates/go/docs/testing.md": 700,
+  "templates/python/docs/testing.md": 780,
+  "templates/rust/docs/testing.md": 740,
+  "templates/typescript/docs/testing.md": 750
 }

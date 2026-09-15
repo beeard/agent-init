@@ -1,0 +1,11 @@
+{
+  "typescriptGlobs": ["**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts"],
+  "typescriptSkipDirectories": [
+    "node_modules",
+    "dist",
+    "build",
+    "coverage",
+    ".next",
+    ".turbo"
+  ]
+}

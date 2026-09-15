@@ -50,7 +50,7 @@ scripts/gates/                the checks, zero dependencies
 | Flag | Effect |
 |---|---|
 | `--name <name>` | Project name for the generated documents. Defaults to the directory name. |
-| `--stack <name>` | Add a language profile. Repeatable. Available: `python`. |
+| `--stack <name>` | Add a language profile. Repeatable. Available: `go`, `python`, `rust`, `typescript`. |
 | `--skills a,b,c` | Which skills to include, or `all`. |
 | `--with-architecture` | Add the composition discipline (below). |
 | `--lenient` | Mark every gate advisory, for adopting on an existing repository. |
@@ -67,13 +67,23 @@ Layers apply in order, and each adds to the ones below it.
 
 **`base`** is the general structure. It knows nothing about how your software is built, and applies to a Python library, a Go service, or a documentation repository equally.
 
-**`--stack python`** adds what is specific to Python:
+**`--stack <name>`** adds what is specific to one language. Each profile ships a testing guide, standing orders, and a gate that enforces a rule that language's community already agrees on.
 
-- **`docs/testing.md`** — pytest layout, how to select the smallest covering test, and the fixtures that keep a test from depending on time, randomness, or the working directory.
-- **`AGENTS.md` orders** — public means no leading underscore, docstrings on everything public, `pytest.raises(..., match=...)`, dependencies in `pyproject.toml`.
-- **`verify-python-docstrings.mjs`** — requires a docstring on every public module, class, function, and method.
+The gate in every profile **delegates to the language's own tooling** rather than reimplementing a parser. A hand-rolled scan does not fail loudly: it misreads decorators, grouped declarations, and type parameters, and reports findings that are wrong rather than merely incomplete.
 
-The docstring gate ships **advisory**: it reports findings without failing the run. Adopting on an existing codebase would otherwise greet the first run with the complete backlog of undocumented definitions. Clear the findings, then remove `"advisory": true` from that gate's entry in the generated `scripts/gates/gates.json`.
+| Stack | Gate | Analyzes through |
+|---|---|---|
+| `python` | `verify-python-docstrings.mjs` | Python's `ast` module, in a subprocess |
+| `go` | `verify-go-docstrings.mjs` | `go/parser` and `go/ast`, via `go run` |
+| `rust` | `verify-rust-doc-comments.mjs` | rustc's built-in `missing_docs` lint, via `cargo check` |
+| `typescript` | `verify-typescript-doc-comments.mjs` | the `typescript` package from your own `node_modules` |
+
+Every stack gate ships **advisory**: it reports findings without failing the run. Adopting on an existing codebase would otherwise greet the first run with the complete backlog of undocumented definitions. Clear the findings, then remove `"advisory": true` from that gate's entry in the generated `scripts/gates/gates.json`.
+
+Two of them need something before they can run, and say so plainly when it is missing:
+
+- **Rust** needs `#![warn(missing_docs)]` in each crate root. The lint is built into rustc, so the compiler already has the check — but it only fires when the crate enables it, and a gate that reports a clean run because its own check was silently disabled is worse than no gate. Add the attribute; the gate fails loud until you do.
+- **TypeScript** needs `typescript` resolvable from your repository, which any TypeScript project already has. It is your dependency, not this package's.
 
 **`--with-architecture`** adds the composition discipline: a system assembled from plugins, capability seams with their three roles, registrations as reversible effects, and the rule that anything model-visible is logged. Use it when the system really is composed that way; skip it otherwise, because a map of an architecture you do not have is worse than no map.
 
@@ -90,7 +100,10 @@ Zero runtime dependencies, plain Node ESM, each runnable on its own. [templates/
 | `verify-md-links.mjs` | commit, full | A relative link whose target does not exist |
 | `verify-md-wrap.mjs` | commit, full | A prose paragraph spanning more than one physical line |
 | `verify-doc-budgets.mjs` | full | A standing document over its word ceiling, or a budgeted document that vanished |
-| `verify-python-docstrings.mjs` | commit, full | A public Python definition without a docstring — advisory by default |
+| `verify-python-docstrings.mjs` | commit, full | A public Python definition without a docstring — advisory |
+| `verify-go-docstrings.mjs` | commit, full | An exported Go declaration without a doc comment — advisory |
+| `verify-typescript-doc-comments.mjs` | commit, full | An exported TypeScript declaration without JSDoc — advisory |
+| `verify-rust-doc-comments.mjs` | full | A public Rust item without a doc comment — advisory |
 
 ```sh
 node scripts/gates/run.mjs                 # the whole-repository suite
@@ -105,7 +118,16 @@ Gates in the `commit` group receive `--staged`, which restricts them to the file
 
 ## Requirements
 
-Node 20 or newer for the gates. The `python` stack additionally needs an interpreter on `PATH` (`python3` or `python`) — the docstring gate analyzes through Python's own `ast` module rather than a reimplemented parser, and says so plainly if no interpreter is found.
+Node 20 or newer for the gates. A stack's gate needs that language's toolchain, and only when the stack is applied:
+
+- `python` — an interpreter on `PATH` (`python3` or `python`)
+- `go` — the Go toolchain
+- `rust` — `cargo`
+- `typescript` — the `typescript` package installed in your repository
+
+A missing toolchain fails the gate loud, naming what is missing and how to opt out. It never reports a clean run it did not perform.
+
+Rust's gate runs in the `full` group only. `missing_docs` is a per-crate lint, so the gate compiles the crate rather than scanning files, and the `commit` group's contract is a hook that stays fast. Move it to `commit` in `scripts/gates/gates.json` if your crate is small enough to check on every commit.
 
 ## Design
 

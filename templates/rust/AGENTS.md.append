@@ -1,0 +1,11 @@
+
+## Rust
+
+These orders apply in addition to the general ones above.
+
+- **A public item carries a `///` doc comment, and `#![warn(missing_docs)]` in the crate root makes the compiler enforce it.** Documentation is not a convention here; the lint is the check. State the contract, and use `# Errors` and `# Panics` sections when the item can do either.
+- **`unwrap`, `expect`, and panicking indexing are not acceptable in library code.** They turn a recoverable condition into a process abort, and the caller has no way to handle it. Return a `Result`, or use `?`. In a test they are fine — a failed test should be loud.
+- **Panic only for a programming error, never for expected input.** A malformed file, a missing key, and a closed connection are all things a caller can act on.
+- **`cargo clippy` and `cargo fmt` before push.** Fix what Clippy reports or explain in a comment why the lint is wrong here; a blanket `#[allow]` at the crate root hides the next real finding too.
+- **`unsafe` requires a `// SAFETY:` comment** stating the invariant the caller must uphold and why this code upholds it. Without that, the reviewer is being asked to trust rather than check.
+- **Prefer the standard library and a small dependency set.** A crate is a permanent compatibility obligation, not a convenience.

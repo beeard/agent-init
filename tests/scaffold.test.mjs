@@ -4,7 +4,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, lstatSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { makeSandbox, removeSandbox, runCli, scaffold } from './helpers.mjs'
+import { STACKS } from '../src/plan.mjs'
+import { makeSandbox, removeSandbox, runCli, scaffold, PACKAGE_ROOT } from './helpers.mjs'
 
 test('writes the full base tree', () => {
   const repo = scaffold()
@@ -89,9 +90,18 @@ test('refuses an unknown stack name', () => {
     const result = runCli(['.', '--stack', 'cobol'], repo)
     assert.equal(result.code, 2)
     assert.match(result.output, /unknown stack "cobol"/u)
-    assert.match(result.output, /available: python/u)
+    assert.match(result.output, /available: go, python, rust, typescript/u)
   } finally {
     removeSandbox(repo)
+  }
+})
+
+test('every declared stack has a template directory', () => {
+  // A name in STACKS with no templates would scaffold a base-only tree and
+  // report success, which is the silent-skip failure the rules forbid.
+  for (const name of STACKS) {
+    const dir = join(PACKAGE_ROOT, 'templates', name)
+    assert.ok(existsSync(dir), `templates/${name}/ is missing but ${name} is in STACKS`)
   }
 })
 
