@@ -12,7 +12,7 @@ import { spawnSync } from 'node:child_process'
 import { basename, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { BASE_SKILLS, buildPlan } from './plan.mjs'
+import { BASE_SKILLS, STACKS, buildPlan } from './plan.mjs'
 import { applyPlan } from './apply.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -31,8 +31,13 @@ Options
                        target directory name)
   --skills <a,b,c>     Skills to include; "all" for every one
                        (default: ${BASE_SKILLS.join(',')})
+  --stack <name>       Add a language profile (available: ${STACKS.join(', ')}).
+                       Repeat for more than one.
   --with-architecture  Also install the software-architecture layer: the
                        system map, glossary, and composition rules
+  --lenient            Mark every gate advisory, so adopting on an existing
+                       repository does not fail on its first run. Tighten the
+                       gates in scripts/gates/gates.json as you fix findings.
   --no-hooks           Do not install the pre-commit hook
   --force              Overwrite files that already exist
   --dry-run            Print the plan without writing anything
@@ -52,7 +57,9 @@ function parseCli(argv) {
     options: {
       name: { type: 'string' },
       skills: { type: 'string' },
+      stack: { type: 'string', multiple: true },
       'with-architecture': { type: 'boolean', default: false },
+      lenient: { type: 'boolean', default: false },
       'no-hooks': { type: 'boolean', default: false },
       force: { type: 'boolean', default: false },
       'dry-run': { type: 'boolean', default: false },
@@ -73,11 +80,19 @@ function parseCli(argv) {
       throw new Error(`unknown skill "${skill}"; available: ${BASE_SKILLS.join(', ')}, all`)
     }
   }
+  const stack = [...new Set(values.stack ?? [])]
+  for (const name of stack) {
+    if (!STACKS.includes(name)) {
+      throw new Error(`unknown stack "${name}"; available: ${STACKS.join(', ')}`)
+    }
+  }
   return {
     target,
     name: values.name ?? basename(target),
     skills,
+    stack,
     architecture: values['with-architecture'],
+    lenient: values.lenient,
     hooks: !values['no-hooks'],
     force: values.force,
     dryRun: values['dry-run'],
@@ -144,13 +159,21 @@ function main(argv) {
     templatesRoot: TEMPLATES_ROOT,
     projectName: options.name,
     skills: options.skills,
+    stack: options.stack,
     architecture: options.architecture,
+    lenient: options.lenient,
   })
   const report = applyPlan(plan, options)
 
   process.stdout.write(`agent-init: ${options.dryRun ? 'plan for' : 'scaffolded'} ${options.target}\n\n`)
   process.stdout.write(`${renderReport(report, options.dryRun)}\n\n`)
   if (!options.dryRun) {
+    const layers = ['base', ...options.stack, ...(options.architecture ? ['architecture'] : [])]
+    process.stdout.write(`Layers: ${layers.join(' + ')}\n\n`)
+    if (options.lenient) {
+      process.stdout.write('Every gate is advisory: findings are reported but do not fail the run.\n')
+      process.stdout.write('Clear them, then remove "advisory": true in scripts/gates/gates.json.\n\n')
+    }
     process.stdout.write('Next:\n')
     process.stdout.write('  1. Edit AGENTS.md — it is deliberately generic; make it yours.\n')
     process.stdout.write('  2. Run: node scripts/gates/run.mjs\n')

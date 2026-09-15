@@ -8,7 +8,7 @@ Scaffold an agent-operating structure into any repository.
 
 An agent working in a repository with no written rules will invent some. They will be inconsistent session to session, invisible to review, and impossible to improve.
 
-Written rules have the opposite failure: a document nobody reads, drifting away from what the code does. `agent-init` addresses both by shipping rules **together with the checks that enforce them**. A rule that no check can verify is a suggestion; a check with no stated rule is a mystery. The pair is the product.
+Written rules have the opposite failure: a document nobody reads, drifting away from what the code does. `agent-init` addresses both by shipping rules **together with the checks that enforce them**. A rule no check can verify is a suggestion; a check with no stated rule is a mystery. The pair is the product.
 
 ## Quick start
 
@@ -20,7 +20,7 @@ Or link it once and use it anywhere:
 
 ```sh
 ln -s /path/to/agent-init/src/cli.mjs ~/.local/bin/agent-init
-cd ~/Projects/new-thing && agent-init .
+cd ~/Projects/new-thing && agent-init . --stack python
 ```
 
 Then:
@@ -35,24 +35,14 @@ node scripts/gates/run.mjs   # the shipped gates, against your new tree
 AGENTS.md                     standing orders, budgeted
 CLAUDE.md                     → AGENTS.md
 .agents/
-  manifest.json               records what was adopted, and when
-  notes/
-    README.md                 the decision-record standard
-    AGENTS.md                 subtree orders + the supersession check
-    proposed/                 unbuilt decisions
-    implemented/              shipped decisions
-    rejected/                 declined proposals
-    archived/                 frozen history
-  skills/
-    <slug>-agent-notes/       when and how to write a decision record
-    <slug>-pre-push-checks/   selecting the smallest covering evidence
-    <slug>-prose-standard/    what prose must say, and what it must not
-    <slug>-code-review/       reviewing against this repository's standards
+  manifest.json               what was adopted, and when
+  notes/                      the decision-record tree and its standard
+  skills/                     four workflows, prefixed with the project slug
 docs/
   AGENTS.md                   the documentation standard: tiers, budgets, slop checklist
   architecture.md             the system map, as a skeleton to fill in
 scripts/gates/                the checks, zero dependencies
-.githooks/pre-commit          the fast subset, installed and activated
+.githooks/pre-commit          what runs on every commit, installed and activated
 ```
 
 ## Options
@@ -60,8 +50,10 @@ scripts/gates/                the checks, zero dependencies
 | Flag | Effect |
 |---|---|
 | `--name <name>` | Project name for the generated documents. Defaults to the directory name. |
+| `--stack <name>` | Add a language profile. Repeatable. Available: `python`. |
 | `--skills a,b,c` | Which skills to include, or `all`. |
-| `--with-architecture` | Add the second layer (below). |
+| `--with-architecture` | Add the composition discipline (below). |
+| `--lenient` | Mark every gate advisory, for adopting on an existing repository. |
 | `--no-hooks` | Do not install the pre-commit hook. |
 | `--force` | Overwrite files that already exist. |
 | `--dry-run` | Print the plan, write nothing. |
@@ -69,41 +61,52 @@ scripts/gates/                the checks, zero dependencies
 
 Re-running is safe: existing files are kept unless you pass `--force`.
 
-## The two layers
+## The layers
+
+Layers apply in order, and each adds to the ones below it.
 
 **`base`** is the general structure. It knows nothing about how your software is built, and applies to a Python library, a Go service, or a documentation repository equally.
 
-**`architecture`** is opt-in and adds the composition discipline: a running system assembled from plugins, capability seams with their three roles, registrations as reversible effects, and the rule that anything model-visible is logged. Use it when the system really is composed that way; skip it otherwise, because a map of an architecture you do not have is worse than no map.
+**`--stack python`** adds what is specific to Python:
 
-Applying it adds a composed system map, a glossary, and a composition guide under `docs/`, plus a section of architecture standing orders appended to `AGENTS.md`. The sources are in [templates/architecture/](templates/architecture/).
+- **`docs/testing.md`** — pytest layout, how to select the smallest covering test, and the fixtures that keep a test from depending on time, randomness, or the working directory.
+- **`AGENTS.md` orders** — public means no leading underscore, docstrings on everything public, `pytest.raises(..., match=...)`, dependencies in `pyproject.toml`.
+- **`verify-python-docstrings.mjs`** — requires a docstring on every public module, class, function, and method.
+
+The docstring gate ships **advisory**: it reports findings without failing the run. Adopting on an existing codebase would otherwise greet the first run with the complete backlog of undocumented definitions. Clear the findings, then remove `"advisory": true` from that gate's entry in the generated `scripts/gates/gates.json`.
+
+**`--with-architecture`** adds the composition discipline: a system assembled from plugins, capability seams with their three roles, registrations as reversible effects, and the rule that anything model-visible is logged. Use it when the system really is composed that way; skip it otherwise, because a map of an architecture you do not have is worse than no map.
+
+The sources are in [templates/](templates/).
 
 ## The gates
 
-Zero runtime dependencies, plain Node ESM, each runnable on its own.
+Zero runtime dependencies, plain Node ESM, each runnable on its own. [templates/base/scripts/gates/gates.json](templates/base/scripts/gates/gates.json) is the inventory: it names each gate, the groups it belongs to, and whether it is advisory. A stack layer adds its own gates by merging into that file.
 
-| Gate | Rejects |
-|---|---|
-| `agent-note-tree.mjs` | Records outside `{lifecycle}/{class}/date-topic.md`; unknown lifecycles or classes; a centralized index |
-| `verify-agent-note-format.mjs` | Bad header, missing sections, a decision recorded without its alternatives, proposal-era headings in a shipped record |
-| `verify-md-wrap.mjs` | A prose paragraph spanning more than one physical line |
-| `verify-md-links.mjs` | A relative link whose target does not exist |
-| `verify-doc-budgets.mjs` | A standing document over its word ceiling, or a budgeted document that vanished |
+| Gate | Group | Rejects |
+|---|---|---|
+| `agent-note-tree.mjs` | commit, full | Records outside `{lifecycle}/{class}/date-topic.md`; unknown lifecycles or classes; a centralized index |
+| `verify-agent-note-format.mjs` | commit, full | Bad header, missing sections, a decision recorded without its alternatives, proposal-era headings in a shipped record |
+| `verify-md-links.mjs` | commit, full | A relative link whose target does not exist |
+| `verify-md-wrap.mjs` | commit, full | A prose paragraph spanning more than one physical line |
+| `verify-doc-budgets.mjs` | full | A standing document over its word ceiling, or a budgeted document that vanished |
+| `verify-python-docstrings.mjs` | commit, full | A public Python definition without a docstring — advisory by default |
 
 ```sh
-node scripts/gates/run.mjs              # all of them
-node scripts/gates/run.mjs --group fast # the pre-commit subset
-node scripts/gates/verify-md-wrap.mjs --staged   # only what you are committing
+node scripts/gates/run.mjs                 # the whole-repository suite
+node scripts/gates/run.mjs --group commit  # what the pre-commit hook runs
+node scripts/gates/run.mjs --list          # what would run, and when
 node scripts/gates/change-scope.mjs --base origin/main
 ```
 
-The installed pre-commit hook runs the fast subset plus the staged paragraph check, so a wrapped paragraph is caught as it is introduced without scanning the whole repository on every commit.
+Gates in the `commit` group receive `--staged`, which restricts them to the files staged for commit — that is how the hook catches a wrapped paragraph or an undocumented function at the moment it is introduced without scanning the repository on every commit. A gate that does not support the flag ignores it.
 
 `change-scope` reports what a change actually touches — committed paths against a merge base, plus staged, unstaged, and untracked ones — so an agent can pick the evidence the change needs instead of running everything. It never guesses or fetches a base.
+
+## Requirements
+
+Node 20 or newer for the gates. The `python` stack additionally needs an interpreter on `PATH` (`python3` or `python`) — the docstring gate analyzes through Python's own `ast` module rather than a reimplemented parser, and says so plainly if no interpreter is found.
 
 ## Design
 
 See [docs/design.md](docs/design.md) for why the tool is built the way it is, and [.agents/notes/](.agents/notes/README.md) for the decisions behind it.
-
-## Requirements
-
-Node 20 or newer. Nothing else — no package manager install, no build step, no dependencies.

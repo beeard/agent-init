@@ -1,79 +1,103 @@
 /**
- * Run the documentation and structure gates.
+ * Run the gates registered in `gates.json`.
  *
  * Every gate runs as a child process, so one crashing does not hide the results
- * of the others. The exit code is non-zero if any gate failed.
+ * of the others. A gate marked `advisory` reports its findings without failing
+ * the run.
  *
- * Usage: node scripts/gates/run.mjs [--group fast|all] [--list]
+ * Usage:
+ *   node scripts/gates/run.mjs                 # the whole-repository suite
+ *   node scripts/gates/run.mjs --group commit  # what the pre-commit hook runs
+ *   node scripts/gates/run.mjs --group full    # the same as the default
+ *   node scripts/gates/run.mjs --list          # what would run, and when
  *
- * `fast` is the subset the pre-commit hook runs. `all` (the default) adds the
- * whole-repository documentation checks.
+ * Gates in the `commit` group receive `--staged`, which restricts them to the
+ * files staged for commit. A gate that does not support the flag ignores it.
  */
 
+import { readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { isMain } from './lib/repo-files.mjs'
 
 const ROOT = resolve(import.meta.dirname, '..', '..')
+const MANIFEST = resolve(ROOT, 'scripts', 'gates', 'gates.json')
 
-/** Gate inventory, in run order. */
-export const GATES = [
-  { script: 'agent-note-tree.mjs', group: 'fast', description: 'decision-record layout' },
-  { script: 'verify-agent-note-format.mjs', group: 'fast', description: 'decision-record format' },
-  { script: 'verify-md-links.mjs', group: 'fast', description: 'relative Markdown links' },
-  { script: 'verify-md-wrap.mjs', group: 'all', description: 'one physical line per paragraph' },
-  { script: 'verify-doc-budgets.mjs', group: 'all', description: 'document word ceilings' },
-]
+/** The groups a caller may select, in the order the default run applies them. */
+export const GROUPS = ['commit', 'full']
+
+/**
+ * Read the gate manifest.
+ * @param root - Absolute repository root.
+ * @returns Gate entries keyed by script name.
+ */
+export function readGates(root) {
+  return JSON.parse(readFileSync(resolve(root, 'scripts', 'gates', 'gates.json'), 'utf8'))
+}
+
+/**
+ * Select the gates a group runs.
+ * @param gates - Gate entries keyed by script name.
+ * @param group - A group name, or null for every group.
+ * @returns Selected `[script, entry]` pairs in manifest order.
+ */
+export function selectGates(gates, group) {
+  return Object.entries(gates).filter(([, entry]) => (entry.groups ?? []).includes(group))
+}
 
 /**
  * Run one gate as a child process.
  * @param root - Absolute repository root.
- * @param gate - Gate descriptor.
- * @returns Exit code, stdout, and stderr.
+ * @param script - Gate filename.
+ * @param args - Extra arguments, such as `--staged`.
+ * @returns Exit code and combined output.
  */
-function runGate(root, gate) {
-  const result = spawnSync(process.execPath, [resolve(root, 'scripts', 'gates', gate.script)], {
+function runGate(root, script, args) {
+  const result = spawnSync(process.execPath, [resolve(root, 'scripts', 'gates', script), ...args], {
     cwd: root,
     encoding: 'utf8',
   })
   return {
     code: result.status ?? 1,
-    stdout: result.stdout ?? '',
-    stderr: result.stderr ?? '',
+    output: `${result.stdout ?? ''}${result.stderr ?? ''}`.trimEnd(),
     error: result.error,
   }
 }
 
 /**
- * Run every gate in a group.
+ * Run every gate in one group.
  * @param root - Absolute repository root.
- * @param group - `fast` or `all`.
- * @returns The number of failures.
+ * @param group - `commit` or `full`.
+ * @returns The number of enforcing failures and the number of advisories.
  */
 export function runGates(root, group) {
-  const selected = group === 'fast' ? GATES.filter(g => g.group === 'fast') : GATES
+  const gates = readGates(root)
+  const selected = selectGates(gates, group)
+  const args = group === 'commit' ? ['--staged'] : []
   let failures = 0
+  let advisories = 0
 
-  for (const gate of selected) {
-    const result = runGate(root, gate)
-    const label = gate.script.replace(/\.mjs$/u, '')
+  for (const [script, entry] of selected) {
+    const label = script.replace(/\.mjs$/u, '')
+    const result = runGate(root, script, args)
     if (result.error !== undefined) {
       failures++
       console.error(`FAIL  ${label.padEnd(28)} ${result.error.message}`)
       continue
     }
     if (result.code === 0) {
-      console.log(`ok    ${label.padEnd(28)} ${result.stdout.trim()}`)
+      console.log(`ok    ${label.padEnd(28)} ${result.output.split('\n').at(-1) ?? ''}`)
       continue
     }
-    failures++
-    console.error(`FAIL  ${label.padEnd(28)} ${gate.description}`)
-    const detail = `${result.stdout}${result.stderr}`.trimEnd()
-    for (const line of detail.split('\n')) console.error(line === '' ? '' : `      ${line}`)
+    const mark = entry.advisory === true ? 'WARN' : 'FAIL'
+    if (entry.advisory === true) advisories++
+    else failures++
+    console.error(`${mark}  ${label.padEnd(28)} ${entry.description}`)
+    for (const line of result.output.split('\n')) console.error(line === '' ? '' : `      ${line}`)
   }
 
-  return failures
+  return { failures, advisories, total: selected.length }
 }
 
 /**
@@ -87,7 +111,7 @@ function main() {
       args: process.argv.slice(2),
       allowPositionals: false,
       options: {
-        group: { type: 'string', default: 'all' },
+        group: { type: 'string' },
         list: { type: 'boolean', default: false },
       },
       strict: true,
@@ -97,25 +121,48 @@ function main() {
     return 2
   }
 
-  if (values.list) {
-    for (const gate of GATES) console.log(`${gate.group.padEnd(5)} ${gate.script.padEnd(28)} ${gate.description}`)
-    return 0
-  }
-  if (values.group !== 'fast' && values.group !== 'all') {
-    console.error(`run: unknown group ${JSON.stringify(values.group)} (expected fast or all)`)
+  let gates
+  try {
+    gates = readGates(ROOT)
+  } catch (error) {
+    console.error(`run: cannot read scripts/gates/gates.json — ${error instanceof Error ? error.message : String(error)}`)
     return 2
   }
 
-  const failures = runGates(ROOT, values.group)
-  const total = values.group === 'fast' ? GATES.filter(g => g.group === 'fast').length : GATES.length
-  if (failures === 0) {
+  if (values.list) {
+    for (const [script, entry] of Object.entries(gates)) {
+      const groups = (entry.groups ?? []).join(',')
+      const note = entry.advisory === true ? '  [advisory]' : ''
+      console.log(`${groups.padEnd(14)} ${script.padEnd(30)} ${entry.description}${note}`)
+    }
+    return 0
+  }
+
+  // The default is one whole-repository pass. Running every group in sequence
+  // would execute each gate once per group it belongs to, so a gate listed in
+  // both would run twice.
+  const group = values.group ?? 'full'
+  if (!GROUPS.includes(group)) {
+    console.error(`run: unknown group ${JSON.stringify(group)} (expected ${GROUPS.join(' or ')})`)
+    return 2
+  }
+
+  const { failures, advisories, total } = runGates(ROOT, group)
+
+  const summary = []
+  if (failures > 0) summary.push(`${failures} of ${total} gate(s) failed`)
+  if (advisories > 0) summary.push(`${advisories} advisory finding(s)`)
+  if (summary.length === 0) {
     console.log(`\n${total} gate(s) passed.`)
     return 0
   }
-  console.error(`\n${failures} of ${total} gate(s) failed.`)
-  return 1
+  console.error(`\n${summary.join(', ')}.`)
+  return failures > 0 ? 1 : 0
 }
 
 if (isMain(import.meta.url)) {
   process.exitCode = main()
 }
+
+/** Exported for tests. */
+export { MANIFEST }

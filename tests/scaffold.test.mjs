@@ -83,6 +83,40 @@ test('refuses an unknown skill name', () => {
   }
 })
 
+test('refuses an unknown stack name', () => {
+  const repo = makeSandbox()
+  try {
+    const result = runCli(['.', '--stack', 'cobol'], repo)
+    assert.equal(result.code, 2)
+    assert.match(result.output, /unknown stack "cobol"/u)
+    assert.match(result.output, /available: python/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('a repeated --stack value is applied once', () => {
+  const repo = scaffold(['--name', 'demo', '--stack', 'python', '--stack', 'python'])
+  try {
+    const agents = readFileSync(join(repo, 'AGENTS.md'), 'utf8')
+    assert.equal(agents.match(/Public means no leading underscore/gu)?.length, 1)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('the manifest records the layers applied', () => {
+  const repo = scaffold(['--name', 'demo', '--stack', 'python', '--with-architecture'])
+  try {
+    const manifest = JSON.parse(readFileSync(join(repo, '.agents/manifest.json'), 'utf8'))
+    assert.deepEqual(manifest.layers, ['base', 'python', 'architecture'])
+    assert.deepEqual(manifest.stack, ['python'])
+    assert.equal(manifest.architecture, true)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
 test('refuses to scaffold outside a Git worktree', () => {
   const dir = makeSandbox()
   try {

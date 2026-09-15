@@ -10,8 +10,11 @@ import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join, relative, resolve, sep } from 'node:path'
 import { readJson, readText, slugify, substitute, today } from './util.mjs'
 
-/** Template layers, applied in order. `architecture` is opt-in. */
-export const LAYERS = ['base', 'architecture']
+/** Template layers, applied in order. `base` is required; the rest are opt-in. */
+export const LAYERS = ['base', 'python', 'architecture']
+
+/** Stack layers, selected by `--stack`. */
+export const STACKS = ['python']
 
 /** Skills shipped with the base layer, as template directory names. */
 export const BASE_SKILLS = ['agent-notes', 'pre-push-checks', 'prose-standard', 'code-review']
@@ -19,7 +22,7 @@ export const BASE_SKILLS = ['agent-notes', 'pre-push-checks', 'prose-standard', 
 /** Scripts merged into an existing `package.json`, without overwriting an entry. */
 export const PACKAGE_SCRIPTS = {
   'check:agents': 'node scripts/gates/run.mjs',
-  'check:agents:fast': 'node scripts/gates/run.mjs --group fast',
+  'check:agents:commit': 'node scripts/gates/run.mjs --group commit',
   'change-scope': 'node scripts/gates/change-scope.mjs',
 }
 
@@ -28,6 +31,14 @@ export const MANIFEST_PATH = '.agents/manifest.json'
 
 /** A suffix marking a template appended to the file named by the rest of the path. */
 const APPEND_SUFFIX = '.append'
+
+/**
+ * A suffix marking a template merged into the file named by the rest of the
+ * path. Merging is a shallow object merge, later keys winning, so a layer adds
+ * its own entries to a manifest without having to restate the ones below it —
+ * and without breaking when a lower layer's entries change.
+ */
+const MERGE_SUFFIX = '.merge'
 
 /**
  * Recursively list every file under a directory.
@@ -62,10 +73,12 @@ function layerFiles(templatesRoot, layer) {
  * @param options.templatesRoot - Absolute path to the package's `templates/` directory.
  * @param options.projectName - Human-readable project name for the root documents.
  * @param options.skills - Skill directory names to include from the base layer.
+ * @param options.stack - Stack layer names to apply, in addition to `base`.
  * @param options.architecture - Whether to apply the opt-in architecture layer.
- * @returns Plan with `files` (write or append), `symlinks`, and `manifest`.
+ * @param options.lenient - Mark every gate advisory, for adoption on an existing repository.
+ * @returns Plan with `files` (write, append, or merge), `symlinks`, and `manifest`.
  */
-export function buildPlan({ targetDir, templatesRoot, projectName, skills, architecture }) {
+export function buildPlan({ targetDir, templatesRoot, projectName, skills, stack = [], architecture, lenient = false }) {
   const variables = {
     PROJECT: projectName,
     SLUG: slugify(projectName),
@@ -73,7 +86,7 @@ export function buildPlan({ targetDir, templatesRoot, projectName, skills, archi
   }
   const files = []
   const symlinks = []
-  const layers = architecture ? LAYERS : ['base']
+  const layers = ['base', ...stack, ...(architecture ? ['architecture'] : [])]
 
   for (const layer of layers) {
     for (const abs of layerFiles(templatesRoot, layer)) {
@@ -85,13 +98,14 @@ export function buildPlan({ targetDir, templatesRoot, projectName, skills, archi
         if (!skills.includes(skillName)) continue
       }
       const relTemplate = relative(join(templatesRoot, layer), abs).split(sep).join('/')
-      const append = relTemplate.endsWith(APPEND_SUFFIX)
-      const relPath = substitute(append ? relTemplate.slice(0, -APPEND_SUFFIX.length) : relTemplate, variables)
+      const kind = relTemplate.endsWith(APPEND_SUFFIX) ? 'append'
+        : relTemplate.endsWith(MERGE_SUFFIX) ? 'merge'
+          : 'write'
+      const suffix = kind === 'append' ? APPEND_SUFFIX : kind === 'merge' ? MERGE_SUFFIX : ''
+      const relPath = substitute(suffix === '' ? relTemplate : relTemplate.slice(0, -suffix.length), variables)
       const path = resolve(targetDir, relPath)
       const content = substitute(readText(abs), variables)
-      files.push(append
-        ? { kind: 'append', path, relPath, content, template: abs }
-        : { kind: 'write', path, relPath, content, template: abs })
+      files.push({ kind, layer, path, relPath, content, template: abs })
     }
   }
 
@@ -103,20 +117,40 @@ export function buildPlan({ targetDir, templatesRoot, projectName, skills, archi
     fallback: '@AGENTS.md\n',
   })
 
-  const mergedScripts = mergePackageScripts(targetDir)
   return {
     targetDir,
     variables,
-    files: dedupe(files),
+    files: lenient ? markAdvisory(dedupe(files)) : dedupe(files),
     symlinks,
-    mergedScripts,
-    manifest: { version: 1, adopted: variables.DATE, layers, skills, architecture },
+    mergedScripts: mergePackageScripts(targetDir),
+    manifest: { version: 1, adopted: variables.DATE, layers, skills, stack, architecture, lenient },
   }
 }
 
 /**
- * Keep the last action for each path so a later layer overrides an earlier one,
- * while append actions always accumulate.
+ * Mark every gate advisory in a planned `gates.json`.
+ *
+ * Adoption on an existing repository would otherwise greet the first run with
+ * the complete backlog of rules the repository has not followed yet. Advisory
+ * reports the same findings without failing, so a repository can adopt, read
+ * its actual state, and tighten one gate at a time.
+ *
+ * @param files - Planned file actions.
+ * @returns The same actions, with any `gates.json` entry marked advisory.
+ */
+function markAdvisory(files) {
+  return files.map((file) => {
+    if (!file.relPath.endsWith('gates.json') || file.kind === 'append') return file
+    const gates = JSON.parse(file.content)
+    for (const gate of Object.values(gates)) gate.advisory = true
+    return { ...file, content: `${JSON.stringify(gates, null, 2)}\n` }
+  })
+}
+
+/**
+ * Keep the last `write` for each path so a later layer overrides an earlier
+ * one, while `append` and `merge` actions always accumulate: they add to what
+ * is already there rather than replacing it.
  * @param files - Planned file actions in layer order.
  * @returns Deduplicated actions preserving first-seen order.
  */
@@ -128,7 +162,7 @@ function dedupe(files) {
   const kept = []
   const seenWrite = new Set()
   for (const file of files) {
-    if (file.kind === 'append') {
+    if (file.kind !== 'write') {
       kept.push(file)
       continue
     }

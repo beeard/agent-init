@@ -65,12 +65,25 @@ function runGates(root, label) {
 
 /**
  * Apply a scaffold into a throwaway directory, without Git.
+ *
+ * The composed tree is what a receiving repository gets, and it is the only
+ * correct thing to check: a layer directory is a partial overlay whose relative
+ * links are written for the composed result, and whose manifests deliberately
+ * list only the entries that layer contributes. Checking a layer in place would
+ * report failures no receiving repository would ever see.
+ *
  * @param options - Options for `buildPlan`.
  * @returns The absolute path to the scaffolded tree.
  */
 function composeScaffold(options) {
   const dir = mkdtempSync(join(tmpdir(), 'agent-init-check-'))
-  const plan = buildPlan({ targetDir: dir, templatesRoot: TEMPLATES, projectName: 'check', skills: ['agent-notes', 'pre-push-checks', 'prose-standard', 'code-review'], ...options })
+  const plan = buildPlan({
+    targetDir: dir,
+    templatesRoot: TEMPLATES,
+    projectName: 'check',
+    skills: ['agent-notes', 'pre-push-checks', 'prose-standard', 'code-review'],
+    ...options,
+  })
   applyPlan(plan, { hooks: false })
   return dir
 }
@@ -81,8 +94,10 @@ function composeScaffold(options) {
  */
 function scaffolds() {
   return [
-    { label: '[base] ', options: { architecture: false } },
-    { label: '[architecture] ', options: { architecture: true } },
+    { label: '[base] ', options: { stack: [], architecture: false } },
+    { label: '[python] ', options: { stack: ['python'], architecture: false } },
+    { label: '[architecture] ', options: { stack: [], architecture: true } },
+    { label: '[python+arch] ', options: { stack: ['python'], architecture: true } },
   ]
 }
 

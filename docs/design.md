@@ -44,13 +44,35 @@ A template that would fail the gates in a receiving repository fails here first.
 
 The configuration points the gates at `templates/**`, and relative links inside templates resolve correctly because a template directory mirrors the layout of the repository it generates.
 
-## Why two layers
+## Why layers
 
-The `base` layer is about how agents work: standing orders, decision records, skills, documentation discipline. It applies to any repository in any language.
+The `base` layer is about how agents work: standing orders, decision records, skills, documentation discipline. It knows nothing about the language the software is written in, and that neutrality is what lets it apply to a Python library, a Go service, and a documentation repository equally.
 
-The `architecture` layer is about how software is composed: plugins, seams, reversible registrations, the model-visible-equals-logged rule. It applies only to systems actually built that way.
+Everything else is a layer on top.
 
-Merging them would mean every repository gets a map of an architecture it does not have, and the map would be confidently wrong. A wrong map is worse than none, because it directs changes to the wrong place. So the composition discipline is opt-in and explicitly labeled.
+**Stack layers** (`--stack python`) add what is specific to a language: a testing guide, language-specific standing orders, and a gate enforcing a rule that language community already agrees on. The test for whether something belongs here is whether it survives translating into another language.
+
+**The architecture layer** (`--with-architecture`) adds how software is composed: plugins, seams, reversible registrations, the model-visible-equals-logged rule. It applies only to systems actually built that way.
+
+Merging these into one layer would give every repository a map of an architecture it does not have, and rules about a language it does not use. A wrong rule is worse than no rule, because it directs work to the wrong place.
+
+### A layer contributes by suffix, not by editing
+
+A layer is a directory with the same shape as the composed result, and its filename suffix decides how each file is applied:
+
+- **No suffix** writes the file. A later layer writing the same path replaces it.
+- **`.append`** appends to the named file inside `<!-- agent-init:begin <layer> -->` markers.
+- **`.merge`** shallow-merges a JSON object into the named file, incoming keys winning.
+
+The marker naming the layer is not decoration. With one shared marker, a second layer appending to `AGENTS.md` finds the marker present and contributes nothing — silently, with no failing check.
+
+`.merge` prevents the same failure in the other direction: a layer listing a manifest's complete contents goes stale the moment a lower layer adds an entry, and surfaces months later in an unrelated repository.
+
+## Why adoption is lenient first
+
+A repository that already exists has already broken some of these rules — its documentation is hard-wrapped, its public functions are undocumented. Running the gates immediately produces a wall of findings about rules the team never agreed to, and the reasonable response is to delete the tool.
+
+So every gate can be marked advisory: it reports the same findings and does not fail the run. `--lenient` marks them all advisory at scaffold time, and a team clears findings and tightens gates one at a time. Removing `"advisory": true` is the moment a rule is actually adopted.
 
 ## Why the archive is frozen
 
@@ -66,7 +88,7 @@ This is the "one home per fact" rule applied to the record set itself.
 
 ## What the tool deliberately does not do
 
-- **It does not know your language.** No test runner is configured, no linter, no build. The gates check documents and record structure, which are the parts that are the same everywhere.
+- **It does not know your language.** No test runner is configured, no linter, no build. A stack layer adds a rule or two about a language, but nothing runs your tests or your type checker — those belong to the project and its own tooling.
 - **It does not write a real architecture map.** It writes the skeleton, because only you know the system. A generated map would be confidently empty.
 - **It does not run on a schedule or enforce anything at runtime.** It writes files once, and the repository owns them from then on.
 - **It does not overwrite.** Re-running keeps existing files, so the tool can be re-run after an upgrade to add new files without destroying the edits a repository has made to the old ones.

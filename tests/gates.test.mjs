@@ -8,7 +8,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { removeSandbox, runGate, runSuite, scaffold } from './helpers.mjs'
@@ -70,12 +70,12 @@ test('a freshly scaffolded repository passes every gate', () => {
   })
 })
 
-test('the fast group runs a strict subset', () => {
+test('the commit group runs a strict subset', () => {
   withRepo({}, (repo) => {
-    const result = runSuite(repo, 'fast')
+    const result = runSuite(repo, 'commit')
     assert.equal(result.code, 0, result.output)
-    assert.match(result.output, /3 gate\(s\) passed/u)
-    assert.doesNotMatch(result.output, /verify-md-wrap/u)
+    assert.match(result.output, /4 gate\(s\) passed/u)
+    assert.doesNotMatch(result.output, /verify-doc-budgets/u)
   })
 })
 
@@ -274,4 +274,184 @@ test('only the allowlisted files may sit at a lifecycle root', () => {
       assert.equal(result.code, 1)
       assert.match(result.output, /expected \{lifecycle\}\/\{class\}\/file\.md/u)
     })
+})
+
+/** A documented Python module, the baseline every Python mutation breaks. */
+const GOOD_PYTHON = `"""A documented module."""
+
+
+class Store:
+    """Holds items."""
+
+    def load(self, path):
+        """Load items from path."""
+        return {}
+
+
+def _private_helper():
+    pass
+`
+
+/**
+ * Scaffold a repository with the Python stack applied.
+ * @returns Absolute path to the scaffolded repository.
+ */
+function scaffoldPython() {
+  return scaffold(['--name', 'demo', '--stack', 'python'])
+}
+
+/**
+ * Write a Python file into a scaffolded repository.
+ * @param repo - Absolute repository path.
+ * @param relPath - Path below the repository root.
+ * @param content - File contents.
+ */
+function writePython(repo, relPath, content) {
+  const abs = join(repo, relPath)
+  mkdirSync(dirname(abs), { recursive: true })
+  writeFileSync(abs, content, 'utf8')
+}
+
+test('the python stack adds its gate, config, and testing guide', () => {
+  const repo = scaffoldPython()
+  try {
+    assert.ok(existsSync(join(repo, 'docs/testing.md')))
+    assert.ok(existsSync(join(repo, 'scripts/gates/verify-python-docstrings.mjs')))
+    const gates = JSON.parse(readFileSync(join(repo, 'scripts/gates/gates.json'), 'utf8'))
+    assert.ok(Object.hasOwn(gates, 'verify-python-docstrings.mjs'))
+    // The base gates survive the merge rather than being replaced by it.
+    assert.ok(Object.hasOwn(gates, 'agent-note-tree.mjs'))
+    assert.equal(gates['verify-python-docstrings.mjs'].advisory, true)
+    assert.equal(gates['agent-note-tree.mjs'].advisory, undefined)
+    const config = JSON.parse(readFileSync(join(repo, 'scripts/gates/config.json'), 'utf8'))
+    assert.deepEqual(config.pythonGlobs, ['**/*.py'])
+    assert.ok(Array.isArray(config.markdownGlobs), 'the python layer must not drop the base config')
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('a documented python module passes the docstring gate', () => {
+  const repo = scaffoldPython()
+  try {
+    writePython(repo, 'pkg/good.py', GOOD_PYTHON)
+    const result = runGate(repo, 'verify-python-docstrings.mjs')
+    assert.equal(result.code, 0, result.output)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('an undocumented module, class, function, and method are each reported', () => {
+  const repo = scaffoldPython()
+  try {
+    writePython(repo, 'pkg/bare.py', 'def top():\n    pass\n\n\nclass Bare:\n    def method(self):\n        pass\n')
+    const result = runGate(repo, 'verify-python-docstrings.mjs')
+    assert.equal(result.code, 1)
+    assert.match(result.output, /pkg\/bare\.py:5\s+class Bare/u)
+    assert.match(result.output, /pkg\/bare\.py:6\s+method method/u)
+    assert.match(result.output, /pkg\/bare\.py:1\s+function top/u)
+    assert.match(result.output, /module <module>/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('a leading underscore makes a definition private', () => {
+  const repo = scaffoldPython()
+  try {
+    writePython(repo, 'pkg/private.py', '"""Doc."""\n\n\ndef _hidden():\n    pass\n\n\nclass _AlsoHidden:\n    pass\n')
+    assert.equal(runGate(repo, 'verify-python-docstrings.mjs').code, 0)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('an overload stub without a docstring is exempt', () => {
+  const repo = scaffoldPython()
+  try {
+    writePython(repo, 'pkg/over.py',
+      '"""Doc."""\n\nfrom typing import overload\n\n\n@overload\ndef parse(value: int) -> int: ...\n\n\ndef parse(value):\n    """Parse."""\n    return value\n')
+    assert.equal(runGate(repo, 'verify-python-docstrings.mjs').code, 0)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('a syntax error is reported rather than crashing the gate', () => {
+  const repo = scaffoldPython()
+  try {
+    writePython(repo, 'pkg/broken.py', 'def (:\n')
+    const result = runGate(repo, 'verify-python-docstrings.mjs')
+    assert.equal(result.code, 1)
+    assert.match(result.output, /syntax error/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('virtualenv and cache directories are not scanned', () => {
+  const repo = scaffoldPython()
+  try {
+    for (const dir of ['venv', '__pycache__', 'build', 'site-packages']) {
+      writePython(repo, `${dir}/mod.py`, 'def undocumented():\n    pass\n')
+    }
+    assert.equal(runGate(repo, 'verify-python-docstrings.mjs').code, 0)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('an advisory gate reports without failing the run', () => {
+  const repo = scaffoldPython()
+  try {
+    writePython(repo, 'pkg/bare.py', 'def top():\n    pass\n')
+    const result = runSuite(repo)
+    assert.equal(result.code, 0, result.output)
+    assert.match(result.output, /WARN\s+verify-python-docstrings/u)
+    assert.match(result.output, /advisory finding/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('--lenient marks every gate advisory', () => {
+  const repo = scaffold(['--name', 'demo', '--stack', 'python', '--lenient'])
+  try {
+    const gates = JSON.parse(readFileSync(join(repo, 'scripts/gates/gates.json'), 'utf8'))
+    assert.equal(Object.values(gates).every(gate => gate.advisory === true), true)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('a missing interpreter fails loud with the way out', () => {
+  const repo = scaffoldPython()
+  try {
+    writePython(repo, 'pkg/good.py', GOOD_PYTHON)
+    // An empty PATH is how a machine without Python looks to the gate.
+    const result = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-python-docstrings.mjs')], {
+      cwd: repo,
+      encoding: 'utf8',
+      env: { ...process.env, PATH: '/nonexistent' },
+    })
+    assert.equal(result.status, 1)
+    assert.match(`${result.stdout}${result.stderr}`, /no Python interpreter found/u)
+    assert.match(`${result.stdout}${result.stderr}`, /gates\.json/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('the python and architecture layers both reach AGENTS.md', () => {
+  const repo = scaffold(['--name', 'demo', '--stack', 'python', '--with-architecture'])
+  try {
+    const agents = readFileSync(join(repo, 'AGENTS.md'), 'utf8')
+    // A single shared marker would make the second layer's section vanish.
+    assert.equal(agents.match(/agent-init:begin/gu)?.length, 2)
+    assert.match(agents, /Public means no leading underscore/u)
+    assert.match(agents, /Compose; do not patch a core/u)
+  } finally {
+    removeSandbox(repo)
+  }
 })

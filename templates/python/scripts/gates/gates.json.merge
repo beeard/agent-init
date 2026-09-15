@@ -1,0 +1,7 @@
+{
+  "verify-python-docstrings.mjs": {
+    "groups": ["commit", "full"],
+    "description": "docstrings on public Python definitions",
+    "advisory": true
+  }
+}

@@ -12,17 +12,16 @@ import { spawnSync } from 'node:child_process'
 import { MANIFEST_PATH, PACKAGE_SCRIPTS } from './plan.mjs'
 import { isPlainObject, readJson, toJson, writeText } from './util.mjs'
 
-/** Markers bounding a section this tool appends, so re-runs stay idempotent. */
-const BEGIN = '<!-- agent-init:begin -->'
-const END = '<!-- agent-init:end -->'
+/** Marker bounding a section this tool appends, so re-runs stay idempotent. */
+const beginMarker = layer => `<!-- agent-init:begin ${layer} -->`
+const endMarker = layer => `<!-- agent-init:end ${layer} -->`
 
 /** The pre-commit hook, kept to checks that stay fast on every commit. */
 const PRE_COMMIT = `#!/bin/sh
 # Fast pre-commit gate, installed by agent-init.
 # Full suite: node scripts/gates/run.mjs
 set -e
-node scripts/gates/run.mjs --group fast
-node scripts/gates/verify-md-wrap.mjs --staged
+node scripts/gates/run.mjs --group commit
 git diff --cached --check
 `
 
@@ -42,6 +41,10 @@ export function applyPlan(plan, { force = false, dryRun = false, hooks = true } 
   for (const file of plan.files) {
     if (file.kind === 'append') {
       results.push(appendFile(file, { force, dryRun }))
+      continue
+    }
+    if (file.kind === 'merge') {
+      results.push(mergeJson(file, { force, dryRun }))
       continue
     }
     results.push(writeFile(file, { force, dryRun }))
@@ -90,24 +93,57 @@ function writeFile(file, { force, dryRun }) {
 
 /**
  * Append a marked section, or write the file when it does not exist yet.
+ *
+ * The markers name the contributing layer. Without that, a second layer
+ * appending to the same file would find the first layer's marker already
+ * present and silently skip its own section.
+ *
  * @param file - An `append` action.
  * @param options - Overwrite and dry-run flags.
  * @returns Outcome entry.
  */
 function appendFile(file, { force, dryRun }) {
+  const begin = beginMarker(file.layer)
+  const end = endMarker(file.layer)
   if (!existsSync(file.path)) {
     // Keep the markers even on a fresh file so a later re-run recognises the
     // section instead of appending a second copy.
-    const wrapped = `${BEGIN}\n${file.content.trimEnd()}\n${END}\n`
+    const wrapped = `${begin}\n${file.content.trimEnd()}\n${end}\n`
     return writeFile({ ...file, kind: 'write', content: wrapped }, { force, dryRun })
   }
   const current = readFileSync(file.path, 'utf8')
-  if (current.includes(BEGIN)) return { relPath: file.relPath, outcome: 'kept', detail: 'section already present' }
+  if (current.includes(begin)) return { relPath: file.relPath, outcome: 'kept', detail: 'section already present' }
   if (!dryRun) {
     const separator = current.endsWith('\n') ? '\n' : '\n\n'
-    writeText(file.path, `${current}${separator}${BEGIN}\n${file.content.trimEnd()}\n${END}\n`)
+    writeText(file.path, `${current}${separator}${begin}\n${file.content.trimEnd()}\n${end}\n`)
   }
   return { relPath: file.relPath, outcome: 'appended' }
+}
+
+/**
+ * Merge a JSON object into an existing one, shallowly, with the incoming keys
+ * winning. A layer uses this to add its own entries to a manifest without
+ * restating the entries below it, so a change to a lower layer's list cannot
+ * leave the higher layer's copy stale.
+ * @param file - A `merge` action whose content parses as a JSON object.
+ * @param options - Overwrite and dry-run flags.
+ * @returns Outcome entry.
+ */
+function mergeJson(file, { force, dryRun }) {
+  const incoming = JSON.parse(file.content)
+  if (!isPlainObject(incoming)) {
+    throw new Error(`${file.relPath}: a merged template must be a JSON object`)
+  }
+  const existing = existsSync(file.path) ? readJson(file.path) : {}
+  const base = isPlainObject(existing) ? existing : {}
+  const added = Object.keys(incoming).filter(key => !Object.hasOwn(base, key))
+  const merged = { ...base, ...incoming }
+  if (!dryRun) {
+    mkdirSync(dirname(file.path), { recursive: true })
+    writeText(file.path, toJson(merged))
+  }
+  const detail = added.length > 0 ? `+ ${added.join(', ')}` : 'no new keys'
+  return { relPath: file.relPath, outcome: 'merged', detail }
 }
 
 /**

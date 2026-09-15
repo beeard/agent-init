@@ -1,0 +1,11 @@
+{
+  "pythonGlobs": ["**/*.py"],
+  "pythonSkipDirectories": [
+    "__pycache__",
+    "venv",
+    "build",
+    "dist",
+    "site-packages",
+    ".tox"
+  ]
+}

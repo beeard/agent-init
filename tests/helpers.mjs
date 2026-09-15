@@ -55,10 +55,10 @@ export function runGate(repo, script) {
 /**
  * Run the whole gate suite inside a scaffolded repository.
  * @param repo - Absolute path to the scaffolded repository.
- * @param group - `fast` or `all`.
+ * @param group - `commit` or `full`.
  * @returns Exit code and combined output.
  */
-export function runSuite(repo, group = 'all') {
+export function runSuite(repo, group = 'full') {
   const result = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'run.mjs'), '--group', group], {
     cwd: repo,
     encoding: 'utf8',
