@@ -515,6 +515,11 @@ test('build and dependency directories are not walked', () => {
   })
 })
 
+// The fixtures below are themselves findings: the gate reads position, and a
+// string holding a comment-looking tag is indistinguishable from a comment to a
+// line-based scan. The package's own run counts them, which is the cost the
+// record for this gate states.
+
 test('a marker that names nothing is rejected', () => {
   withRepo({}, (repo) => {
     // A bare tag is the case the scan exists to prevent: it tells a reader the

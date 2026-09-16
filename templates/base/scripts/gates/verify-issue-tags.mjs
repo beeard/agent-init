@@ -18,10 +18,13 @@
  * therefore the comment opener, the tag, and the reason, as in a line comment
  * reading `TODO(owner): reason`; the standing orders state it.
  *
- * What the rule does not model, it does not claim to: a tag buried mid-comment
- * is not read as a marker, and neither is one inside a docstring or a string
- * literal. Reading those would take a parser per language, and a finding that
- * is wrong is worse than one that is missing.
+ * The scan is line-based and parses nothing, and it states both consequences
+ * rather than pretending they are not there. A tag that is not the first thing
+ * a comment says — a note appended after a line of prose — goes unreported,
+ * because the rule reads position. And a string that reads like a comment is
+ * reported as one, because telling a string from a comment takes a parser per
+ * language: a test fixture containing a bare tag is a finding, and giving it a
+ * reason is the fix.
  *
  * `--staged` checks the staged files, which is how the pre-commit hook uses it.
  * It judges only files the whole-repository run would judge as well.

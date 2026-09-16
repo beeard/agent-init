@@ -14,7 +14,7 @@ Every rule the package ships is accompanied by the check that enforces it, and b
 
 `verify-md-wrap` enforces one physical line per paragraph. `verify-agent-note-tree` and `verify-agent-note-format` enforce where a decision record lives and what it contains. `verify-doc-budgets` enforces the ceilings the documentation standard states. `verify-md-links` keeps relative references honest.
 
-The gates live at `scripts/gates/` in the receiving repository. They run through `node scripts/gates/run.mjs`, the pre-commit hook runs the `fast` subset, and nothing in them refers back to this package.
+The gates live at `scripts/gates/` in the receiving repository. They run through `node scripts/gates/run.mjs`, the pre-commit hook runs the `commit` group, and nothing in them refers back to this package.
 
 This repository runs the same gates against its own templates under `npm run check`, with the templates' own budgets in the manifest, so a template that would fail in a receiving repository fails here first.
 

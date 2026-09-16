@@ -20,7 +20,7 @@ Writing the scan showed why the form has to be part of the rule. A scan that loo
 
 **The shared corpus policy moved to `lib/repo-files.mjs`.** Two gates now answer the same questions — which globs does the configuration declare, which directories does it skip, and what is staged — and two answers to those questions is how gates came to disagree before. `declaredGlobs`, `corpusSkipPredicate`, `REPOSITORY_SKIP_DIRECTORIES`, `stagedSources`, and `stagedSubset` are shared; `verify-final-newline` uses them rather than its own copies.
 
-**A word-based scan is what the rule forbids**, so the gate states what it does not model: a tag buried mid-comment is not read as a marker, and neither is one inside a docstring or a string literal. Reading those takes a parser per language, and a finding that is wrong is worse than one that is missing.
+**A word-based scan is what the rule forbids**, so the gate reads position and states what that costs. Two consequences follow from being line-based and non-parsing. A tag that is not the first thing a comment says goes unreported, because the rule reads position rather than words. And a string that reads like a comment *is* reported, because telling a string from a comment takes a parser per language — a test fixture containing a bare tag is a finding, and giving it a reason is the fix.
 
 ## Alternatives considered
 
@@ -41,6 +41,8 @@ The tags have a consumer. A reader runs one command and sees the whole unplanned
 The cost is a narrowed rule with an unenforced half. Nothing checks that a `FIXME` really blocks a release or that a `XXX` is really a someday — the tag is a claim, and the gate reads only its shape. The rule's first half remains a convention, and the record should not pretend otherwise.
 
 A second cost is that the marker must be the first thing a comment says. A tag placed after a sentence — `// the parser is slow — TODO: profile this` — is invisible to the scan and therefore to the rule. The form is stated in the standing orders, so it is a rule a writer can follow, but it is a real narrowing of what counts as a marker.
+
+The same root cause produces the opposite error, and it is the more visible one in practice. A line-based scan cannot tell a string from a comment, so a test fixture holding a bare tag is reported as a marker — this repository's own suite carries three, and `npm run check` counts them. That is noise rather than a false alarm, since a fixture with a reason silences it, but a reader who investigates the count finds test data and has to work out why. The alternative is a parser per language, which is the thing this gate exists not to be.
 
 A third cost is that the code-glob list is fixed rather than derived. A layer that adds a language gets its markers scanned only if someone adds the extension, and the language profiles already declare their own globs that this list does not read. The list is complete for the four stacks that ship, and a stack that adds a fifth has one more file to update.
 
