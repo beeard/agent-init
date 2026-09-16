@@ -2,7 +2,7 @@
 
 Scaffold an agent-operating structure into any repository.
 
-`agent-init` writes a self-contained tree — standing orders, decision records, skills, and the gates that enforce them — into a repository you name. Nothing it writes refers back to this package: the receiving repository owns the result outright, and its rules keep working if this tool is never run again.
+It writes a self-contained tree — standing orders, decision records, skills, and the gates that enforce them. Nothing it writes refers back to this package: the receiving repository owns the result outright, and its rules keep working if this tool is never run again.
 
 ## Why
 
@@ -27,6 +27,12 @@ Then:
 
 ```sh
 node scripts/gates/run.mjs   # the shipped gates, against your new tree
+```
+
+Or let an agent do it: the package ships a Claude Code skill that reads the repository, picks the language profiles, and runs the tool.
+
+```sh
+ln -s /path/to/agent-init/skills/agent-init-setup ~/.claude/skills/agent-init-setup
 ```
 
 ## What it writes
@@ -94,7 +100,7 @@ The sources are in [templates/](templates/).
 
 ## The gates
 
-Zero runtime dependencies, plain Node ESM, each runnable on its own. [templates/base/scripts/gates/gates.json](templates/base/scripts/gates/gates.json) is the inventory: it names each gate, the groups it belongs to, and whether it is advisory. A stack layer adds its own gates by merging into that file.
+Zero dependencies, plain Node ESM, each runnable on its own. [gates.json](templates/base/scripts/gates/gates.json) is the inventory: each gate, the groups it belongs to, and whether it is advisory. A stack layer merges its own entries in.
 
 | Gate | Group | Rejects |
 |---|---|---|
@@ -103,6 +109,7 @@ Zero runtime dependencies, plain Node ESM, each runnable on its own. [templates/
 | `verify-md-links.mjs` | commit, full | A relative link whose target does not exist |
 | `verify-md-wrap.mjs` | commit, full | A prose paragraph spanning more than one physical line |
 | `verify-final-newline.mjs` | commit, full | A file not ending in exactly one newline |
+| `verify-issue-tags.mjs` | commit, full | A known-issue marker that names nothing |
 | `verify-doc-budgets.mjs` | full | A standing document over its word ceiling, or a budgeted document that vanished |
 | `verify-python-docstrings.mjs` | commit, full | A public Python definition without a docstring — advisory |
 | `verify-go-docstrings.mjs` | commit, full | An exported Go declaration without a doc comment — advisory |
@@ -116,7 +123,7 @@ node scripts/gates/run.mjs --list          # what would run, and when
 node scripts/gates/change-scope.mjs --base origin/main
 ```
 
-Gates in the `commit` group receive `--staged`, which restricts them to the files staged for commit — that is how the hook catches a wrapped paragraph or an undocumented function at the moment it is introduced without scanning the repository on every commit. A gate that does not support the flag ignores it.
+Gates in the `commit` group receive `--staged`, which restricts them to the files staged for commit. That is how the hook catches a wrapped paragraph or an undocumented function when it is introduced, without scanning the repository on every commit.
 
 `change-scope` reports what a change actually touches — committed paths against a merge base, plus staged, unstaged, and untracked ones — so an agent can pick the evidence the change needs instead of running everything. It never guesses or fetches a base.
 

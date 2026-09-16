@@ -2,10 +2,32 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { dirname, join, sep } from 'node:path'
 import { STACKS, buildPlan } from '../src/plan.mjs'
+import { collectFiles, skipPredicate } from '../templates/base/scripts/gates/lib/repo-files.mjs'
 import { makeSandbox, removeSandbox, runCli, scaffold, PACKAGE_ROOT } from './helpers.mjs'
+
+/**
+ * List every Markdown file in the package, excluding what the composed runs cover.
+ * @param root - Absolute package root.
+ * @param current - Directory being read.
+ * @param prefix - Repository-relative prefix for `current`.
+ * @returns Repository-relative slash paths.
+ */
+function shippedMarkdown(root, current = root, prefix = '') {
+  const out = []
+  for (const entry of readdirSync(current, { withFileTypes: true })) {
+    // `templates/` is product rather than package prose, and the dogfood runs
+    // check it as the composed tree a receiving repository gets. The rest is
+    // the package's own writing, which no composed run ever sees.
+    if (entry.name === 'node_modules' || entry.name === '.git' || (prefix === '' && entry.name === 'templates')) continue
+    const rel = prefix === '' ? entry.name : `${prefix}/${entry.name}`
+    if (entry.isDirectory()) out.push(...shippedMarkdown(root, join(current, entry.name), rel))
+    else if (entry.name.endsWith('.md')) out.push(rel)
+  }
+  return out
+}
 
 test('writes the full base tree', () => {
   const repo = scaffold()
@@ -94,6 +116,30 @@ test('refuses an unknown stack name', () => {
   } finally {
     removeSandbox(repo)
   }
+})
+
+test('every shipped Markdown file is read by the package gates, or deliberately skipped', () => {
+  // A new directory of prose at the top level is read by no gate until someone
+  // widens the configuration, and nothing said so: `skills/` shipped blind to
+  // the link, wrap, and newline checks until a check happened to fail on it.
+  // Silence is the failure mode this guard closes, so it compares the files on
+  // disk against the corpus the configured globs actually select.
+  //
+  // Two kinds of file are legitimately absent from that corpus. `skipGlobs`
+  // names what a repository excludes on purpose, and a symlink is the same file
+  // as its target, which the corpus already holds under the target's path.
+  const config = JSON.parse(readFileSync(join(PACKAGE_ROOT, 'scripts', 'gates', 'config.json'), 'utf8'))
+  const skip = skipPredicate(PACKAGE_ROOT, config.skipGlobs ?? [])
+  const corpus = collectFiles(PACKAGE_ROOT, config.markdownGlobs, skip)
+  const covered = new Set(corpus.map(file => file.relPath))
+  const coveredReal = new Set(corpus.map(file => file.real))
+  assert.ok(covered.size > 0, 'the package globs must select something')
+
+  const uncovered = shippedMarkdown(PACKAGE_ROOT).filter((rel) => {
+    if (covered.has(rel) || skip(rel)) return false
+    return !coveredReal.has(realpathSync(join(PACKAGE_ROOT, rel)))
+  })
+  assert.deepEqual(uncovered, [], `these shipped documents are read by no gate: ${uncovered.join(', ')}`)
 })
 
 test('every declared stack has a template directory', () => {

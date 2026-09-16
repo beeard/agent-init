@@ -4,6 +4,7 @@
     "AGENTS.md",
     "README.md",
     "docs/**/*.md",
+    "skills/**/*.md",
     ".agents/notes/**/*.md"
   ],
   "skipGlobs": [
@@ -13,6 +14,7 @@
     "AGENTS.md",
     "README.md",
     "docs/**/*.md",
+    "skills/**/*.md",
     ".agents/notes/**/*.md"
   ]
 }

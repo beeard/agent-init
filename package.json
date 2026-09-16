@@ -12,6 +12,7 @@
   },
   "files": [
     "src",
+    "skills",
     "templates",
     "README.md",
     "AGENTS.md"
