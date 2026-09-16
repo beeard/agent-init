@@ -10,9 +10,6 @@ import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join, relative, resolve, sep } from 'node:path'
 import { readJson, readText, slugify, substitute, today } from './util.mjs'
 
-/** Template layers, applied in order. `base` is required; the rest are opt-in. */
-export const LAYERS = ['base', 'python', 'architecture']
-
 /** Stack layers, selected by `--stack`. */
 export const STACKS = ['go', 'python', 'rust', 'typescript']
 
