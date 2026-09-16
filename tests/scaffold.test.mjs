@@ -2,6 +2,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join, sep } from 'node:path'
 import { STACKS, buildPlan } from '../src/plan.mjs'
@@ -333,6 +334,50 @@ test('every stack ships its own testing guide', () => {
       assert.match(guide, new RegExp(`specific to ${name}`, 'iu'), `docs/testing-${name}.md is another language's guide`)
     }
     assert.match(readFileSync(join(repo, 'AGENTS.md'), 'utf8'), /\[docs\/testing-python\.md\]\(docs\/testing-python\.md\)/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('a repository whose hooks Git cannot reach is opted in instead', () => {
+  const repo = makeSandbox()
+  try {
+    // Another hooksPath wins over the repository's own, so Git never reads
+    // `.githooks/`. The chain a user installs for that case runs the file only
+    // for a repository that opted in, and the opt-in lives in `.git/config` so
+    // a clone cannot carry it.
+    spawnSync('git', ['-C', repo, 'config', 'core.hooksPath', join(repo, 'elsewhere')])
+    const result = runCli(['.', '--name', 'demo'], repo)
+    assert.equal(result.code, 0, result.output)
+    assert.match(result.output, /not activated/u)
+    const marker = spawnSync('git', ['-C', repo, 'config', '--local', '--get', 'agent-init.githooks'],
+      { encoding: 'utf8' })
+    assert.equal(marker.stdout.trim(), 'true')
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('an activated repository is not opted in', () => {
+  const repo = makeSandbox()
+  // `git config --get` reads every scope, so a machine with a global
+  // core.hooksPath never reaches the branch this test is about. Emptying the
+  // global file is what isolates it — the test must not edit the real one.
+  const emptyConfig = join(repo, 'no-global-config')
+  writeFileSync(emptyConfig, '', 'utf8')
+  try {
+    const result = spawnSync(process.execPath, [join(PACKAGE_ROOT, 'src', 'cli.mjs'), '.', '--name', 'demo'], {
+      cwd: repo,
+      encoding: 'utf8',
+      env: { ...process.env, GIT_CONFIG_GLOBAL: emptyConfig, GIT_CONFIG_NOSYSTEM: '1' },
+    })
+    assert.equal(result.status, 0, `${result.stdout}${result.stderr}`)
+    assert.match(`${result.stdout}${result.stderr}`, /activated/u)
+    // With no other hooksPath, the tool points Git at `.githooks` itself, so
+    // there is no chain to satisfy and the marker has no consumer.
+    const local = key => spawnSync('git', ['-C', repo, 'config', '--local', '--get', key], { encoding: 'utf8' }).stdout.trim()
+    assert.equal(local('core.hooksPath'), '.githooks')
+    assert.equal(local('agent-init.githooks'), '')
   } finally {
     removeSandbox(repo)
   }

@@ -250,6 +250,14 @@ function mergeScripts(merged, { dryRun }) {
 /**
  * Install the fast pre-commit hook and point Git at the hook directory, unless
  * the repository already configured a different one.
+ *
+ * When another `core.hooksPath` is in the way, the hook file cannot be reached
+ * by Git at all, and the only thing that can run it is a chain in whatever
+ * directory won. `agent-init.githooks` records, in the repository's own config,
+ * that this repository's `.githooks/` may be executed — the marker such a chain
+ * reads. It is written to `.git/config`, which a clone does not carry, so a
+ * repository cannot opt itself in by shipping a file.
+ *
  * @param targetDir - Absolute path to the target repository.
  * @param options - Dry-run flag and a note sink.
  * @returns Outcome entry.
@@ -264,7 +272,11 @@ function installHook(targetDir, { dryRun, notes }) {
   const current = spawnSync('git', ['-C', targetDir, 'config', '--get', 'core.hooksPath'], { encoding: 'utf8' })
   const configured = (current.stdout ?? '').trim()
   if (configured !== '' && configured !== '.githooks') {
-    notes.push(`core.hooksPath is already ${configured}; left as is. Enable these hooks with: git config core.hooksPath .githooks`)
+    // Git will not read this hook, so say what turns it on rather than only
+    // what is in the way. Both commands are needed: the marker lets a hook
+    // chain run the file, and the path is what Git itself would need.
+    if (!dryRun) spawnSync('git', ['-C', targetDir, 'config', 'agent-init.githooks', 'true'], { encoding: 'utf8' })
+    notes.push(`core.hooksPath is already ${configured}; left as is. These hooks run where that directory chains to them, and otherwise with: git config core.hooksPath .githooks`)
     return { relPath: '.githooks/pre-commit', outcome: 'added', detail: 'not activated' }
   }
   if (!dryRun) spawnSync('git', ['-C', targetDir, 'config', 'core.hooksPath', '.githooks'], { encoding: 'utf8' })

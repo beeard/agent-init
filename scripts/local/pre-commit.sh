@@ -14,6 +14,9 @@
 #
 # Styring:
 #   KROK_KJEDE=1   settes på barnet, så en hook som peker tilbake ikke looper
+#   agent-init.githooks=true   per repo, i .git/config, og kreves for at
+#                              `.githooks/pre-commit` skal kjøre i det hele tatt.
+#                              Se kommentaren lenger ned om hvorfor.
 #
 # Hooken feiler åpent: finnes ingen repo-hook å kjede til, går commiten
 # gjennom. En hook i hjemmemappa di skal ikke blokkere arbeid i et vilkårlig
@@ -38,13 +41,33 @@ case "$common_dir" in
   *) common_dir="$PWD/$common_dir" ;;
 esac
 
-# Repoets egen hook, i den rekkefølgen den er mest sannsynlig å ligge i.
+# Hvilke steder får kjøre.
+#
+# `$GIT_DIR/hooks/` ligger inne i `.git/`, som ikke klones. En hook der er satt
+# opp av den som eier maskinen eller klonen, og å kjøre den er trygt.
+#
+# `.githooks/` i arbeidstreet er derimot repo-innhold: det følger med `git
+# clone`, og hvem som helst kan ha skrevet det. Git kjører det aldri selv — den
+# leser bare core.hooksPath og $GIT_DIR/hooks — så denne kjeden ville være det
+# eneste som gjorde en fremmed fil om til kode, maskinvidt, i ethvert klonet
+# repo. Derfor krever den et samtykke.
+#
+# Samtykket ligger i `.git/config`, som ikke klones, så ingen kan levere det
+# sammen med koden. agent-init setter det i repoer den scaffolder, altså er det
+# brukerens egen handling som opt-in-er. Uten nøkkelen kjører bare Gits eget
+# sted, og da er ingenting endret fra før denne kjeden fantes.
+if [ "$(git config --local --get agent-init.githooks 2>/dev/null)" = "true" ]; then
+  candidates=("$top/.githooks/pre-commit" "$common_dir/hooks/pre-commit")
+else
+  candidates=("$common_dir/hooks/pre-commit")
+fi
+
 # `.githooks/` først: det er konvensjonen agent-init skriver, og den eneste en
-# global core.hooksPath kan ha gjort uoppnåelig. Deretter Gits eget sted, som
-# er det pre-push her ved siden av leter i. Den første som kan kjøres avgjør:
-# å kjøre to pre-commit-hooker etter hverandre ville kjørt `git diff --cached`
-# to ganger og gjort en feilende sjekk vanskelig å tilskrive.
-for candidate in "$top/.githooks/pre-commit" "$common_dir/hooks/pre-commit"; do
+# global core.hooksPath kan ha gjort uoppnåelig. Den første som kan kjøres
+# avgjør: å kjøre to pre-commit-hooker etter hverandre ville kjørt
+# `git diff --cached` to ganger og gjort en feilende sjekk vanskelig å
+# tilskrive.
+for candidate in "${candidates[@]}"; do
   if [ -f "$candidate" ] && [ -x "$candidate" ]; then
     if ! KROK_KJEDE=1 "$candidate" "$@"; then
       log "repoets egen pre-commit stoppet commiten: $candidate"

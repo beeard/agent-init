@@ -11,7 +11,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, readdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PACKAGE_ROOT, makeSandbox, removeSandbox } from './helpers.mjs'
 
@@ -46,6 +46,40 @@ function makeHome() {
 
 const HOOK = join(PACKAGE_ROOT, 'scripts', 'local', 'pre-commit.sh')
 const SKILL = join(PACKAGE_ROOT, 'skills', 'agent-init-setup')
+
+/**
+ * Run the hook chain with a repository as its working directory.
+ * @param repo - Absolute repository path.
+ * @param options - Optional spawn options, such as a timeout.
+ * @returns Exit code and combined output.
+ */
+function runChain(repo, options = {}) {
+  const result = spawnSync(HOOK, [], { cwd: repo, encoding: 'utf8', ...options })
+  return { code: result.status ?? 1, output: `${result.stdout}${result.stderr}` }
+}
+
+/**
+ * Write an executable script into a repository.
+ * @param repo - Absolute repository path.
+ * @param relPath - Path below the repository root.
+ * @param content - Script contents.
+ */
+function writeScript(repo, relPath, content) {
+  const abs = join(repo, relPath)
+  mkdirSync(join(abs, '..'), { recursive: true })
+  writeFileSync(abs, content, 'utf8')
+  chmodSync(abs, 0o755)
+}
+
+/**
+ * Set one value in a repository's own config, which a clone does not carry.
+ * @param repo - Absolute repository path.
+ * @param key - Config key.
+ * @param value - Config value.
+ */
+function setLocal(repo, key, value) {
+  spawnSync('git', ['-C', repo, 'config', '--local', key, value])
+}
 
 test('installs both links into a fresh home', () => {
   const home = makeHome()
@@ -135,6 +169,94 @@ test('without a global hooks path the chain is skipped, not guessed at', () => {
     assert.ok(existsSync(join(home, '.claude', 'skills', 'agent-init-setup')), 'the skill is still linked')
   } finally {
     removeSandbox(home)
+  }
+})
+
+test('the chain does not run a working-tree hook without an opt-in', () => {
+  const repo = makeSandbox()
+  try {
+    const marker = join(repo, 'ran')
+    // `.githooks/` follows from `git clone`, so anyone can write the file. Git
+    // never runs it on its own; the chain is what would turn repository content
+    // into code, machine-wide, in every repository the user clones.
+    writeScript(repo, '.githooks/pre-commit', `#!/bin/sh\necho ran > ${marker}\n`)
+    assert.equal(runChain(repo).code, 0)
+    assert.ok(!existsSync(marker), 'a cloned .githooks/pre-commit must not run on its own')
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('the chain runs a working-tree hook once the repository opts in', () => {
+  const repo = makeSandbox()
+  try {
+    const marker = join(repo, 'ran')
+    writeScript(repo, '.githooks/pre-commit', `#!/bin/sh\necho ran > ${marker}\n`)
+    // The marker lives in .git/config, which a clone does not carry, so the
+    // repository cannot opt itself in by shipping a file.
+    setLocal(repo, 'agent-init.githooks', 'true')
+    assert.equal(runChain(repo).code, 0)
+    assert.ok(existsSync(marker), 'an opted-in repository must have its hook run')
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('only an exact true opts a repository in', () => {
+  const repo = makeSandbox()
+  try {
+    const marker = join(repo, 'ran')
+    writeScript(repo, '.githooks/pre-commit', `#!/bin/sh\necho ran > ${marker}\n`)
+    for (const value of ['ja', '1', 'TRUE', '']) {
+      setLocal(repo, 'agent-init.githooks', value)
+      runChain(repo)
+      assert.ok(!existsSync(marker), `"${value}" must not be read as an opt-in`)
+    }
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('a hook inside .git is run without an opt-in', () => {
+  const repo = makeSandbox()
+  try {
+    const marker = join(repo, 'ran')
+    // `$GIT_DIR/hooks/` is not cloned content, so running it grants nothing an
+    // attacker could deliver.
+    writeScript(repo, '.git/hooks/pre-commit', `#!/bin/sh\necho ran > ${marker}\n`)
+    assert.equal(runChain(repo).code, 0)
+    assert.ok(existsSync(marker), 'the repository-local hook is the safe case')
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('the chain stops a commit when the repository hook fails', () => {
+  const repo = makeSandbox()
+  try {
+    writeScript(repo, '.githooks/pre-commit', '#!/bin/sh\nexit 1\n')
+    setLocal(repo, 'agent-init.githooks', 'true')
+    const result = runChain(repo)
+    assert.equal(result.code, 1, 'a failing repository hook must fail the commit')
+    assert.match(result.output, /stoppet commiten/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('the chain does not recurse when a hook calls back into it', () => {
+  const repo = makeSandbox()
+  try {
+    // A repository hook that runs the chain again would loop forever without
+    // the guard; the child sets KROK_KJEDE, and the second entry returns.
+    const chain = join(PACKAGE_ROOT, 'scripts', 'local', 'pre-commit.sh')
+    writeScript(repo, '.githooks/pre-commit', `#!/bin/sh\n"${chain}"\necho reached >> ${join(repo, 'reached')}\n`)
+    setLocal(repo, 'agent-init.githooks', 'true')
+    const result = runChain(repo, { timeout: 10_000 })
+    assert.equal(result.code, 0, result.output)
+    assert.ok(existsSync(join(repo, 'reached')), 'the hook must run once and return')
+  } finally {
+    removeSandbox(repo)
   }
 })
 
