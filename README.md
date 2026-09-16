@@ -46,6 +46,8 @@ scripts/gates/                the checks, zero dependencies
 .githooks/pre-commit          what runs on every commit, installed and activated
 ```
 
+The hook is activated unless `core.hooksPath` already points somewhere else. Git has only one, so a repository that points it at another hooks directory keeps it: the run reports `not activated` rather than replacing it, and the file is there to enable with `git config core.hooksPath .githooks`. That replaces the other directory's hooks rather than adding to them; to run both, have one directory's script call the other.
+
 ## Options
 
 | Flag | Effect |
