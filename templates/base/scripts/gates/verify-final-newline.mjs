@@ -28,9 +28,11 @@
  */
 
 import { readFileSync, statSync } from 'node:fs'
-import { spawnSync } from 'node:child_process'
 import { resolve } from 'node:path'
-import { collectFiles, isMain, readConfig, skipPredicate } from './lib/repo-files.mjs'
+import {
+  REPOSITORY_SKIP_DIRECTORIES, collectFiles, corpusSkipPredicate, declaredGlobs,
+  isMain, readConfig, stagedSources, stagedSubset,
+} from './lib/repo-files.mjs'
 
 const ROOT = resolve(import.meta.dirname, '..', '..')
 
@@ -41,46 +43,6 @@ const DEFAULT_GLOBS = [
   '**/*.py', '**/*.go', '**/*.rs', '**/*.sh',
 ]
 
-/** Build and dependency directories skipped even when no layer names them. */
-const DEFAULT_SKIP_DIRECTORIES = [
-  'node_modules', 'dist', 'build', 'target', 'vendor', 'coverage', '.git',
-]
-
-/**
- * Every glob the configuration declares, under any `*Globs` key but the skips.
- * @param config - The parsed gate configuration.
- * @returns Glob patterns, in declaration order.
- */
-function declaredGlobs(config) {
-  return Object.entries(config)
-    .filter(([key, value]) => key !== 'skipGlobs' && key.endsWith('Globs') && Array.isArray(value))
-    .flatMap(([, globs]) => globs)
-}
-
-/**
- * Every directory the configuration skips, under any `*SkipDirectories` key.
- * @param config - The parsed gate configuration.
- * @returns Directory names that exclude the files beneath them.
- */
-function declaredSkipDirectories(config) {
-  return Object.entries(config)
-    .filter(([key, value]) => key.endsWith('SkipDirectories') && Array.isArray(value))
-    .flatMap(([, directories]) => directories)
-}
-
-/**
- * List the files staged for commit.
- * @param root - Absolute repository root.
- * @returns Staged paths, or null when Git cannot answer.
- */
-function stagedSources(root) {
-  const result = spawnSync('git', [
-    '-C', root, 'diff', '--cached', '--name-only', '--diff-filter=ACMR', '-z', '--',
-  ], { encoding: 'buffer', maxBuffer: 64 * 1024 * 1024 })
-  if (result.status !== 0) return null
-  return result.stdout.toString('utf8').split('\0').filter(Boolean)
-}
-
 /**
  * Resolve which files to check.
  * @param root - Absolute repository root.
@@ -89,12 +51,7 @@ function stagedSources(root) {
  */
 function selectFiles(root, stagedOnly) {
   const config = readConfig(resolve(root, 'scripts', 'gates', 'config.json'))
-  const excluded = new Set([...DEFAULT_SKIP_DIRECTORIES, ...declaredSkipDirectories(config)])
-  const inSharedSkip = skipPredicate(root, config.skipGlobs ?? [])
-  // Only directory components exclude a file. A name in this set is a directory
-  // holding generated output; a file that happens to share the name is not it.
-  const isSkipped = relPath =>
-    inSharedSkip(relPath) || relPath.split('/').slice(0, -1).some(segment => excluded.has(segment))
+  const isSkipped = corpusSkipPredicate(root, config, REPOSITORY_SKIP_DIRECTORIES)
   const corpus = collectFiles(root, [...DEFAULT_GLOBS, ...declaredGlobs(config)], isSkipped)
   const entry = file => ({ abs: file.abs, relPath: file.realPath ?? file.relPath })
 
@@ -105,21 +62,7 @@ function selectFiles(root, stagedOnly) {
     console.error('verify-final-newline: --staged needs a Git worktree; falling back to the whole repository')
     return corpus.map(entry)
   }
-  // The staged run is the repository run restricted to the staged subset, never
-  // a wider one. Both take their corpus from the same globs, so the hook cannot
-  // fail a commit over a file this rule was never written for — a binary, an
-  // extensionless build file — and demand a fix that does not exist: no edit
-  // adds a trailing newline to a PNG.
-  const byPath = new Map()
-  for (const file of corpus) {
-    const found = entry(file)
-    byPath.set(file.relPath, found)
-    byPath.set(found.relPath, found)
-  }
-  return staged.flatMap(relPath => {
-    const file = byPath.get(relPath)
-    return file === undefined ? [] : [file]
-  })
+  return stagedSubset(corpus, staged).map(entry)
 }
 
 /**

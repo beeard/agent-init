@@ -9,8 +9,14 @@
  */
 
 import { readFileSync, readdirSync, realpathSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+/** Build and dependency directories every gate skips, named or not. */
+export const REPOSITORY_SKIP_DIRECTORIES = [
+  'node_modules', 'dist', 'build', 'target', 'vendor', 'coverage', '.git',
+]
 
 /**
  * Whether a gate module is the process entry point rather than an import.
@@ -194,4 +200,87 @@ export function skipPredicate(root, skipGlobs) {
  */
 export function isArchived(notesRoot, relPath) {
   return relPath.startsWith(`${notesRoot}/archived/`)
+}
+
+/**
+ * Every glob the configuration declares, under any `*Globs` key but the skips.
+ * @param config - The parsed gate configuration.
+ * @returns Glob patterns, in declaration order.
+ */
+export function declaredGlobs(config) {
+  return Object.entries(config)
+    .filter(([key, value]) => key !== 'skipGlobs' && key.endsWith('Globs') && Array.isArray(value))
+    .flatMap(([, globs]) => globs)
+}
+
+/**
+ * Every directory the configuration skips, under any `*SkipDirectories` key.
+ * @param config - The parsed gate configuration.
+ * @returns Directory names that exclude the files beneath them.
+ */
+export function declaredSkipDirectories(config) {
+  return Object.entries(config)
+    .filter(([key, value]) => key.endsWith('SkipDirectories') && Array.isArray(value))
+    .flatMap(([, directories]) => directories)
+}
+
+/**
+ * Build the predicate that decides whether a path is outside a gate's corpus.
+ *
+ * A gate shares one answer to this question rather than keeping its own, so two
+ * gates cannot disagree about what a directory name means. The shared
+ * `skipGlobs` is where a repository names frozen or generated regions once for
+ * every gate at once, and the `*SkipDirectories` keys are where each layer names
+ * the build and dependency output it does not own.
+ *
+ * A name excludes a file only where it is a directory component of that file's
+ * path: a file that happens to be called `build` is not a build directory.
+ *
+ * @param root - Absolute repository root.
+ * @param config - The parsed gate configuration.
+ * @param defaultDirectories - Directory names skipped even when nothing names them.
+ * @returns A predicate over repository-relative paths.
+ */
+export function corpusSkipPredicate(root, config, defaultDirectories = []) {
+  const excluded = new Set([...defaultDirectories, ...declaredSkipDirectories(config)])
+  const inSharedSkip = skipPredicate(root, config.skipGlobs ?? [])
+  return relPath =>
+    inSharedSkip(relPath) || relPath.split('/').slice(0, -1).some(segment => excluded.has(segment))
+}
+
+/**
+ * List the files staged for commit.
+ * @param root - Absolute repository root.
+ * @returns Staged paths, or null when Git cannot answer.
+ */
+export function stagedSources(root) {
+  const result = spawnSync('git', [
+    '-C', root, 'diff', '--cached', '--name-only', '--diff-filter=ACMR', '-z', '--',
+  ], { encoding: 'buffer', maxBuffer: 64 * 1024 * 1024 })
+  if (result.status !== 0) return null
+  return result.stdout.toString('utf8').split('\0').filter(Boolean)
+}
+
+/**
+ * Restrict a repository corpus to the files staged for commit.
+ *
+ * The result is a subset of the corpus, never a wider set. A staged run that
+ * reached past what the repository run covers would fail a commit over a file
+ * the rule was never written for, and a rule a file cannot satisfy has no
+ * remedy but to skip the gate entirely, which costs it every future run.
+ *
+ * @param corpus - The corpus the whole-repository run would judge.
+ * @param staged - Repository-relative staged paths.
+ * @returns The corpus entries whose path is staged.
+ */
+export function stagedSubset(corpus, staged) {
+  const byPath = new Map()
+  for (const file of corpus) {
+    byPath.set(file.relPath, file)
+    byPath.set(file.realPath ?? file.relPath, file)
+  }
+  return staged.flatMap((relPath) => {
+    const file = byPath.get(relPath)
+    return file === undefined ? [] : [file]
+  })
 }

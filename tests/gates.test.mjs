@@ -11,7 +11,23 @@ import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
-import { removeSandbox, runGate, runSuite, scaffold } from './helpers.mjs'
+import { removeSandbox, runGate, runSuite, scaffold, PACKAGE_ROOT } from './helpers.mjs'
+
+/**
+ * How many gates the shipped manifest registers in one group.
+ *
+ * Derived rather than written down: a copied number turns every new gate into a
+ * failing test that has nothing to say about the gate.
+ *
+ * @param group - `commit` or `full`.
+ * @returns The number of gates in that group.
+ */
+function registeredGates(group) {
+  const manifest = JSON.parse(
+    readFileSync(join(PACKAGE_ROOT, 'templates', 'base', 'scripts', 'gates', 'gates.json'), 'utf8'),
+  )
+  return Object.values(manifest).filter(entry => entry.groups.includes(group)).length
+}
 
 /** A well-formed implemented record, used as the baseline every mutation breaks. */
 const GOOD_RECORD = `# Decision Record: A settled question
@@ -66,7 +82,7 @@ test('a freshly scaffolded repository passes every gate', () => {
   withRepo({ args: ['--with-architecture'] }, (repo) => {
     const result = runSuite(repo)
     assert.equal(result.code, 0, result.output)
-    assert.match(result.output, /6 gate\(s\) passed/u)
+    assert.match(result.output, new RegExp(`${registeredGates('full')} gate\\(s\\) passed`, 'u'))
   })
 })
 
@@ -74,7 +90,8 @@ test('the commit group runs a strict subset', () => {
   withRepo({}, (repo) => {
     const result = runSuite(repo, 'commit')
     assert.equal(result.code, 0, result.output)
-    assert.match(result.output, /5 gate\(s\) passed/u)
+    assert.match(result.output, new RegExp(`${registeredGates('commit')} gate\\(s\\) passed`, 'u'))
+    assert.ok(registeredGates('commit') < registeredGates('full'), 'the commit group must not be the whole suite')
     assert.doesNotMatch(result.output, /verify-doc-budgets/u)
   })
 })
@@ -495,6 +512,57 @@ test('build and dependency directories are not walked', () => {
       writeFileSync(join(repo, dir, 'x.md'), '# no newline', 'utf8')
     }
     assert.equal(runGate(repo, 'verify-final-newline.mjs').code, 0)
+  })
+})
+
+test('a marker that names nothing is rejected', () => {
+  withRepo({}, (repo) => {
+    // A bare tag is the case the scan exists to prevent: it tells a reader the
+    // problem was noticed and nothing about what is missing.
+    writeFileSync(join(repo, 'tool.mjs'), '// TODO\nexport const x = 1\n', 'utf8')
+    const result = runGate(repo, 'verify-issue-tags.mjs')
+    assert.equal(result.code, 1)
+    assert.match(result.output, /tool\.mjs:1\s+TODO/u)
+    assert.match(result.output, /name nothing/u)
+  })
+})
+
+test('a marker with a reason is listed and accepted', () => {
+  withRepo({}, (repo) => {
+    writeFileSync(join(repo, 'tool.mjs'),
+      '// FIXME(release): the parser drops the last field\nexport const x = 1\n// TODO: rename this\n', 'utf8')
+    const result = runGate(repo, 'verify-issue-tags.mjs')
+    assert.equal(result.code, 0, result.output)
+    // The report is the scan the standing orders promise: location, tag, owner,
+    // and the reason, so a reader sorts the backlog without grepping.
+    assert.match(result.output, /FIXME\s+tool\.mjs:1 \(release\)\s+the parser drops the last field/u)
+    assert.match(result.output, /TODO\s+tool\.mjs:3\s+rename this/u)
+    assert.match(result.output, /2 marker\(s\) — FIXME 1, TODO 1, XXX 0\./u)
+  })
+})
+
+test('prose that names the vocabulary is not a marker', () => {
+  withRepo({}, (repo) => {
+    // The rule is about what a marker is, not about the word. A word-based scan
+    // reports the file that defines the vocabulary — including this gate's own
+    // source — and a scan that reports its own rule is worse than none.
+    writeFileSync(join(repo, 'tool.mjs'),
+      "const TAGS = ['FIXME', 'TODO', 'XXX']\n// the tags are FIXME, TODO, and XXX\n", 'utf8')
+    const result = runGate(repo, 'verify-issue-tags.mjs')
+    assert.equal(result.code, 0, result.output)
+    assert.match(result.output, /no known-issue markers/u)
+  })
+})
+
+test('--staged leaves a marker outside the commit alone', () => {
+  withRepo({}, (repo) => {
+    writeFileSync(join(repo, 'old.mjs'), '// TODO\n', 'utf8')
+    writeFileSync(join(repo, 'tool.mjs'), 'export const x = 1\n', 'utf8')
+    assert.equal(spawnSync('git', ['-C', repo, 'add', 'tool.mjs'], { encoding: 'utf8' }).status, 0)
+    const staged = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-issue-tags.mjs'), '--staged'],
+      { cwd: repo, encoding: 'utf8' })
+    assert.equal(staged.status, 0, staged.stdout + staged.stderr)
+    assert.match(staged.stdout, /1 file\(s\) checked/u)
   })
 })
 

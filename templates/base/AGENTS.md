@@ -18,7 +18,7 @@ Standing orders for agents working in {{PROJECT}}: the rules needed in context e
 - **Explicit beats implicit.** Put a default where it is decided and visible, as a named resolution step — never as a hidden fallback buried inside the operation.
 - **Fail loud.** A missing referent, an unknown variant, or an unreachable branch is an error, never a silent skip. An empty `catch` names the error and why, and keeps its `try` to one statement.
 - **Switch on discriminant tags**, and end a closed union with an exhaustive check. An open, extensible union falls through a documented default instead.
-- **Flag known issues with `FIXME`, `TODO`, or `XXX`**, by urgency: `FIXME` blocks a release, `TODO` is soon, `XXX` is someday. Pick the tag that matches, so anyone scanning can tell a release blocker from a maybe. A clean scan is what makes the tags worth writing.
+- **Flag known issues with `FIXME`, `TODO`, or `XXX`**, by urgency: `FIXME` blocks a release, `TODO` is soon, `XXX` is someday. Pick the tag that matches, so anyone scanning can tell a release blocker from a maybe. `verify-issue-tags` lists them all and rejects a tag that names nothing; a clean scan is what makes the tags worth writing.
 - **Every file ends with exactly one newline.** `verify-final-newline` enforces it; an editor setting that adds one automatically is the easiest way to comply.
 - **Comment the contract, not the reasoning.** Keep behavior, failure, timing, ownership, and the non-obvious orientation. Delete narration, restatement of the code, and the path you took to arrive at it.
 - **Keep comments local.** Do not expand an unrelated comment or explain distant behavior that the reader does not need here.

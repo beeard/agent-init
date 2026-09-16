@@ -25,6 +25,7 @@ import { walkAgentNoteTree } from '../templates/base/scripts/gates/agent-note-tr
 import { checkAgentNoteFormat } from '../templates/base/scripts/gates/verify-agent-note-format.mjs'
 import { checkDocBudgets } from '../templates/base/scripts/gates/verify-doc-budgets.mjs'
 import { checkFinalNewline } from '../templates/base/scripts/gates/verify-final-newline.mjs'
+import { checkIssueTags } from '../templates/base/scripts/gates/verify-issue-tags.mjs'
 import { checkMarkdownLinks } from '../templates/base/scripts/gates/verify-md-links.mjs'
 import { checkMarkdownWrap } from '../templates/base/scripts/gates/verify-md-wrap.mjs'
 import { applyPlan } from '../src/apply.mjs'
@@ -46,6 +47,7 @@ function runGates(root, label) {
   const links = checkMarkdownLinks(root)
   const budgets = checkDocBudgets(root)
   const newline = checkFinalNewline(root)
+  const tags = checkIssueTags(root)
   const tag = message => `${label}${message}`
 
   return [
@@ -67,6 +69,11 @@ function runGates(root, label) {
       failures: newline.violations.map(v => tag(`${v.relPath}  ${v.reason}`)),
     },
     { name: 'verify-doc-budgets', checked: `${budgets.count} document(s)`, failures: budgets.failures.map(tag) },
+    {
+      name: 'verify-issue-tags',
+      checked: `${tags.checked} file(s), ${tags.markers.length} marker(s)`,
+      failures: tags.nameless.map(m => tag(`${m.relPath}:${m.line}  ${m.tag} names nothing`)),
+    },
   ]
 }
 

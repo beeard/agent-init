@@ -34,6 +34,13 @@
     ],
     "description": "one physical line per paragraph"
   },
+  "verify-issue-tags.mjs": {
+    "groups": [
+      "commit",
+      "full"
+    ],
+    "description": "known-issue markers name what they wait for"
+  },
   "verify-doc-budgets.mjs": {
     "groups": [
       "full"
