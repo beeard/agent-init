@@ -498,6 +498,62 @@ test('build and dependency directories are not walked', () => {
   })
 })
 
+test('a file inside a dot-directory is judged like any other', () => {
+  withRepo({}, (repo) => {
+    // The rule is stated over every file the repository owns, and `.agents/` is
+    // named by `markdownGlobs`. A walker that does not descend into dot
+    // directories is not a reason for the rule to stop applying there.
+    writeFileSync(join(repo, '.agents', 'notes', 'proposed', 'bare.md'), '# no newline', 'utf8')
+    const result = runGate(repo, 'verify-final-newline.mjs')
+    assert.equal(result.code, 1)
+    assert.match(result.output, /\.agents\/notes\/proposed\/bare\.md\s+no trailing newline/u)
+  })
+})
+
+test('an archived record is skipped through the shared skip list', () => {
+  withRepo({}, (repo) => {
+    // The frozen archive is named once, in `skipGlobs`, for every gate at once.
+    // A gate that skips it by its own rule drifts from the gates that do not.
+    writeRecord(repo, 'archived/architecture/2020-01-01-old.md', '# Old\n\nfrozen, no newline')
+    assert.equal(runGate(repo, 'verify-final-newline.mjs').code, 0)
+  })
+})
+
+test('a declaration cannot narrow the newline corpus away', () => {
+  withRepo({}, (repo) => {
+    // The built-in globs are a floor rather than a default, so emptying every
+    // list the configuration declares cannot reduce the gate to a clean run
+    // over no files at all.
+    const configPath = join(repo, 'scripts', 'gates', 'config.json')
+    const config = JSON.parse(readFileSync(configPath, 'utf8'))
+    for (const key of Object.keys(config)) {
+      if (key.endsWith('Globs')) config[key] = []
+    }
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8')
+    writeFileSync(join(repo, 'docs', 'bare.md'), '# Title\n\nno newline at the end', 'utf8')
+    const result = runGate(repo, 'verify-final-newline.mjs')
+    assert.equal(result.code, 1)
+    assert.match(result.output, /docs\/bare\.md\s+no trailing newline/u)
+  })
+})
+
+test('a language layer\'s skip directories are honoured by the newline gate', () => {
+  const repo = scaffoldPython()
+  try {
+    // The layer declares `venv/` as output it does not own, so its language
+    // gates never read those files. The newline rule has no more claim on them
+    // than the gate that owns the language does.
+    writePython(repo, 'venv/lib/vendored.py', 'vendored = 1')
+    writePython(repo, 'pkg/mod.py', 'value = 1')
+    const result = runGate(repo, 'verify-final-newline.mjs')
+    assert.equal(result.code, 1)
+    assert.match(result.output, /pkg\/mod\.py\s+no trailing newline/u)
+    assert.doesNotMatch(result.output, /venv\//u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
 test('--staged still rejects a staged file the rule covers', () => {
   withRepo({}, (repo) => {
     writeFileSync(join(repo, 'docs', 'bare.md'), '# Title\n\nno newline at the end', 'utf8')
