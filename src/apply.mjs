@@ -143,6 +143,9 @@ function shapeOf(value) {
  * of — one object, the other not — is refused rather than resolved: composing
  * and replacing are different intents, and the shapes are what tell them apart.
  *
+ * The reported detail names what the merge actually did to the file, so a
+ * contribution to a shared value reads as a change rather than as a no-op.
+ *
  * @param file - A `merge` action whose content parses as a JSON object.
  * @param options - Overwrite and dry-run flags.
  * @returns Outcome entry.
@@ -154,12 +157,17 @@ function mergeJson(file, { force, dryRun }) {
   }
   const existing = existsSync(file.path) ? readJson(file.path) : {}
   const base = isPlainObject(existing) ? existing : {}
-  const added = Object.keys(incoming).filter(key => !Object.hasOwn(base, key))
   // A key holding an object on both sides merges one level deeper, so a layer
   // contributes its own entry to a shared value instead of replacing it. The
   // document budgets rely on this: several layers append to the same document,
   // and each declares the share of the ceiling it needs.
+  //
+  // The report is derived here rather than from the top-level keys alone. A
+  // layer that contributes a share to a shared value changes the file without
+  // adding a key, and calling that a no-op would be the only account anyone
+  // gets of a ceiling that just moved — it is what `--dry-run` prints.
   const merged = { ...base }
+  const changes = []
   for (const [key, value] of Object.entries(incoming)) {
     const held = base[key]
     const heldIsObject = isPlainObject(held)
@@ -176,14 +184,28 @@ function mergeJson(file, { force, dryRun }) {
         + 'and re-run to rebuild it from the templates; an entry they do not declare is lost with it.',
       )
     }
+    if (!Object.hasOwn(base, key)) {
+      changes.push(`+ ${key}`)
+    } else if (!heldIsObject) {
+      // A parsed template and a parsed file never share an array, so identity
+      // would report every list as changed on a re-run that wrote exactly what
+      // the file already held.
+      if (toJson(held) !== toJson(value)) changes.push(`changed ${key}`)
+    } else {
+      // The shape check above has already refused a mismatch, so both sides are
+      // objects and the change is in the entries this layer sets.
+      const fresh = Object.keys(value).filter(entry => !Object.hasOwn(held, entry))
+      const rewritten = Object.keys(value).filter(entry => Object.hasOwn(held, entry) && toJson(held[entry]) !== toJson(value[entry]))
+      if (fresh.length > 0) changes.push(`+ ${fresh.join(', ')} in ${key}`)
+      if (rewritten.length > 0) changes.push(`changed ${rewritten.join(', ')} in ${key}`)
+    }
     merged[key] = heldIsObject && valueIsObject ? { ...held, ...value } : value
   }
   if (!dryRun) {
     mkdirSync(dirname(file.path), { recursive: true })
     writeText(file.path, toJson(merged))
   }
-  const detail = added.length > 0 ? `+ ${added.join(', ')}` : 'no new keys'
-  return { relPath: file.relPath, outcome: 'merged', detail }
+  return { relPath: file.relPath, outcome: 'merged', detail: changes.join(', ') || 'already present' }
 }
 
 /**

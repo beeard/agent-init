@@ -178,6 +178,36 @@ test('--force overwrites existing files', () => {
   }
 })
 
+test('the merge report names what changed, not just the top-level keys', () => {
+  const repo = scaffold(['--name', 'demo', '--stack', 'python'])
+  try {
+    const manifestPath = join(repo, 'scripts', 'gates', 'doc-budgets.manifest.json')
+    // `AGENTS.md` is already there, so a report counting top-level keys alone
+    // called this run a no-op while the file gained a layer's share.
+    const contributed = runCli(['.', '--stack', 'go'], repo)
+    assert.equal(contributed.code, 0)
+    assert.match(contributed.output,
+      /merged\s+scripts\/gates\/doc-budgets\.manifest\.json\s+\+ go in AGENTS\.md, \+ docs\/testing-go\.md/u)
+
+    // Re-running the same layer writes what the file already holds, and says so
+    // rather than reporting every list as changed on identity.
+    const again = runCli(['.', '--stack', 'go'], repo)
+    assert.match(again.output, /merged\s+scripts\/gates\/doc-budgets\.manifest\.json\s+already present/u)
+
+    // Entries the file already had, written with a different value: one inside
+    // a shared value, one replacing a plain number.
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    manifest['AGENTS.md'].go = 999
+    manifest['docs/testing-go.md'] = 500
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+    const changed = runCli(['.', '--stack', 'go'], repo)
+    assert.match(changed.output,
+      /merged\s+scripts\/gates\/doc-budgets\.manifest\.json\s+changed go in AGENTS\.md, changed docs\/testing-go\.md/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
 test('refuses to merge a key the file and the template disagree about', () => {
   const repo = scaffold(['--name', 'demo', '--stack', 'python'])
   try {
