@@ -159,3 +159,19 @@ test('every stack layer registers its gate without replacing the base inventory'
     }
   }
 })
+
+test('rust: a file the crate does not declare is not reported', { skip: !HAS_CARGO && 'cargo is not installed' }, () => {
+  const repo = scaffold(['--name', 'demo', '--stack', 'rust', '--no-hooks'])
+  try {
+    write(repo, 'Cargo.toml', '[package]\nname = "demo"\nversion = "0.1.0"\nedition = "2021"\n')
+    write(repo, 'src/lib.rs', '//! Demo.\n#![warn(missing_docs)]\n')
+    // Never declared with `mod`, so it is not part of the crate and the
+    // compiler cannot see it. Reporting it would mean guessing at Rust's
+    // module resolution rather than using the compiler's, and the order this
+    // gate takes is that the compiler decides what the crate contains.
+    write(repo, 'src/orphan.rs', 'pub fn orphan() {}\n')
+    assert.equal(runGate(repo, 'verify-rust-doc-comments.mjs').code, 0)
+  } finally {
+    removeSandbox(repo)
+  }
+})
