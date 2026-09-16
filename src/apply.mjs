@@ -269,18 +269,47 @@ function installHook(targetDir, { dryRun, notes }) {
     writeFileSync(hookPath, PRE_COMMIT, 'utf8')
     chmodSync(hookPath, 0o755)
   }
-  const current = spawnSync('git', ['-C', targetDir, 'config', '--get', 'core.hooksPath'], { encoding: 'utf8' })
+  const current = spawnSync('git', ['-C', targetDir, 'config', '--local', '--get', 'core.hooksPath'], { encoding: 'utf8' })
   const configured = (current.stdout ?? '').trim()
   if (configured !== '' && configured !== '.githooks') {
     // Git will not read this hook, so say what turns it on rather than only
     // what is in the way. Both commands are needed: the marker lets a hook
     // chain run the file, and the path is what Git itself would need.
-    if (!dryRun) spawnSync('git', ['-C', targetDir, 'config', 'agent-init.githooks', 'true'], { encoding: 'utf8' })
+    //
+    // `--local` is explicit rather than left to Git's default. The marker is
+    // only worth anything in the repository's own config, and a redirect
+    // through `GIT_CONFIG` would otherwise put it somewhere nothing reads,
+    // silently, because the result is not inspected.
+    if (!dryRun) setLocalConfig(targetDir, 'agent-init.githooks', 'true', notes)
     notes.push(`core.hooksPath is already ${configured}; left as is. These hooks run where that directory chains to them, and otherwise with: git config core.hooksPath .githooks`)
     return { relPath: '.githooks/pre-commit', outcome: 'added', detail: 'not activated' }
   }
-  if (!dryRun) spawnSync('git', ['-C', targetDir, 'config', 'core.hooksPath', '.githooks'], { encoding: 'utf8' })
+  if (!dryRun) setLocalConfig(targetDir, 'core.hooksPath', '.githooks', notes)
   return { relPath: '.githooks/pre-commit', outcome: 'added', detail: 'activated' }
+}
+
+/**
+ * Write one value into the repository's own Git config.
+ *
+ * There is nowhere to put it when the target is not a repository at all, which
+ * `--allow-non-git` permits. That is reported rather than ignored: the hook file
+ * is written either way, and a run that says it left the repository configured
+ * when it did not would be the only account anyone gets.
+ *
+ * @param targetDir - Absolute path to the target repository.
+ * @param key - Config key to set.
+ * @param value - Value to set.
+ * @param notes - Note sink for a failure.
+ * @returns True when Git accepted the value.
+ */
+function setLocalConfig(targetDir, key, value, notes) {
+  const result = spawnSync('git', ['-C', targetDir, 'config', '--local', key, value], { encoding: 'utf8' })
+  if (result.status !== 0) {
+    const reason = (result.stderr ?? '').trim().split('\n')[0] ?? 'git config failed'
+    notes.push(`could not set ${key} locally (${reason}); set it by hand where Git can read it`)
+    return false
+  }
+  return true
 }
 
 /** Every script name this tool may add, for documentation and tests. */

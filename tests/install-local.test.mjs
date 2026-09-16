@@ -44,6 +44,20 @@ function makeHome() {
   return home
 }
 
+/**
+ * Read one value from a sandbox's global config.
+ * @param home - Absolute sandbox path used as `$HOME`.
+ * @param key - Config key.
+ * @returns The configured value, trimmed.
+ */
+function globalValue(home, key) {
+  const result = spawnSync('git', ['config', '--global', '--get', key], {
+    encoding: 'utf8',
+    env: { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, '.config') },
+  })
+  return (result.stdout ?? '').trim()
+}
+
 const HOOK = join(PACKAGE_ROOT, 'scripts', 'local', 'pre-commit.sh')
 const SKILL = join(PACKAGE_ROOT, 'skills', 'agent-init-setup')
 
@@ -172,6 +186,40 @@ test('without a global hooks path the chain is skipped, not guessed at', () => {
   }
 })
 
+test('a hooks path written with a tilde is expanded, not skipped', () => {
+  const home = makeSandbox()
+  try {
+    spawnSync('git', ['config', '--global', 'core.hooksPath', '~/git-hooks'], {
+      env: { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, '.config') },
+    })
+    // `git config --get` returns `~/git-hooks` verbatim, which is not absolute
+    // and would make the installer skip the chain in exactly the case it exists
+    // for. Git expands the tilde when it resolves the setting itself.
+    const result = install(home)
+    assert.equal(result.code, 0, result.output)
+    assert.doesNotMatch(result.output, /skipped\s+the hook chain/u)
+    assert.equal(readlinkSync(join(home, 'git-hooks', 'pre-commit')), HOOK)
+  } finally {
+    removeSandbox(home)
+  }
+})
+
+test('a relative hooks path is skipped rather than guessed at', () => {
+  const home = makeSandbox()
+  try {
+    spawnSync('git', ['config', '--global', 'core.hooksPath', '.githooks'], {
+      env: { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, '.config') },
+    })
+    // Git resolves a relative value per repository, so there is no single place
+    // to install the chain, and none is needed: the value is the repository's
+    // own directory, which Git reads without help.
+    const result = install(home)
+    assert.match(result.output, /skipped\s+the hook chain/u)
+  } finally {
+    removeSandbox(home)
+  }
+})
+
 test('the chain does not run a working-tree hook without an opt-in', () => {
   const repo = makeSandbox()
   try {
@@ -217,6 +265,25 @@ test('only an exact true opts a repository in', () => {
   }
 })
 
+test('the working-tree hook wins when both candidates exist', () => {
+  const repo = makeSandbox()
+  try {
+    // The ordering decides which file becomes code, so the case where both are
+    // present is the one worth pinning: `.githooks/` first, `$GIT_DIR/hooks`
+    // only when no working-tree hook can run, and never both.
+    const treeMarker = join(repo, 'tree-ran')
+    const gitMarker = join(repo, 'git-ran')
+    writeScript(repo, '.githooks/pre-commit', `#!/bin/sh\necho ran > ${treeMarker}\n`)
+    writeScript(repo, '.git/hooks/pre-commit', `#!/bin/sh\necho ran > ${gitMarker}\n`)
+    setLocal(repo, 'agent-init.githooks', 'true')
+    assert.equal(runChain(repo).code, 0)
+    assert.ok(existsSync(treeMarker), 'the opted-in working-tree hook runs')
+    assert.ok(!existsSync(gitMarker), 'the repository-local hook must not also run')
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
 test('a hook inside .git is run without an opt-in', () => {
   const repo = makeSandbox()
   try {
@@ -238,7 +305,7 @@ test('the chain stops a commit when the repository hook fails', () => {
     setLocal(repo, 'agent-init.githooks', 'true')
     const result = runChain(repo)
     assert.equal(result.code, 1, 'a failing repository hook must fail the commit')
-    assert.match(result.output, /stoppet commiten/u)
+    assert.match(result.output, /stopped the commit/u)
   } finally {
     removeSandbox(repo)
   }

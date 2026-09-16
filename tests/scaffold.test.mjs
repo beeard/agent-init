@@ -346,7 +346,7 @@ test('a repository whose hooks Git cannot reach is opted in instead', () => {
     // `.githooks/`. The chain a user installs for that case runs the file only
     // for a repository that opted in, and the opt-in lives in `.git/config` so
     // a clone cannot carry it.
-    spawnSync('git', ['-C', repo, 'config', 'core.hooksPath', join(repo, 'elsewhere')])
+    spawnSync('git', ['-C', repo, 'config', '--local', 'core.hooksPath', join(repo, 'elsewhere')])
     const result = runCli(['.', '--name', 'demo'], repo)
     assert.equal(result.code, 0, result.output)
     assert.match(result.output, /not activated/u)

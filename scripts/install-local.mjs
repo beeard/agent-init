@@ -41,7 +41,11 @@ const HOME = homedir()
  * @returns The absolute hooks directory, or null when the chain is not needed.
  */
 function hooksPath() {
-  const result = spawnSync('git', ['config', '--global', '--get', 'core.hooksPath'], { encoding: 'utf8' })
+  // `--path` makes Git expand `~` and `~user` the way it does when it resolves
+  // the setting itself. Reading the raw value would reject the common
+  // `~/.config/git/hooks` as relative and skip the chain in exactly the case it
+  // exists for.
+  const result = spawnSync('git', ['config', '--global', '--path', '--get', 'core.hooksPath'], { encoding: 'utf8' })
   const value = (result.stdout ?? '').trim()
   // Unset means each repository's own .githooks/ is what Git reads, and a
   // relative value is resolved per repository for the same effect. Neither
@@ -58,7 +62,7 @@ function hooksPath() {
  * @returns One outcome line.
  */
 function link(source, target, dryRun) {
-  const rel = target.startsWith(`${HOME}/`) ? `~/${target.slice(HOME.length + 1)}` : target
+  const rel = display(target)
 
   if (existsSync(target) || isDanglingLink(target)) {
     if (isLinkTo(target, source)) return `ok        ${rel}`
@@ -66,7 +70,8 @@ function link(source, target, dryRun) {
     // A link holds a path, not content, so there is nothing to preserve and
     // renaming it would only move the path — the "backup" would point at
     // whatever the link named, and dangle the moment that stopped existing.
-    if (isDanglingLink(target) || isSymlink(target)) {
+    // Any symlink is this case, dangling or not.
+    if (isSymlink(target)) {
       if (!dryRun) {
         unlinkSync(target)
         symlinkSync(source, target)
@@ -76,12 +81,18 @@ function link(source, target, dryRun) {
 
     // A real file or directory is kept beside itself. rename never deletes and
     // works for a directory, where a copy would have to recurse.
-    const backup = `${target}.bak.${Math.floor(Date.now() / 1000)}`
+    //
+    // The name is made unique rather than taken from the clock alone: rename
+    // replaces its destination silently, so two runs inside one second would
+    // destroy the first backup, which is the one guarantee this makes.
+    const stamp = Math.floor(Date.now() / 1000)
+    let backup = `${target}.bak.${stamp}`
+    for (let attempt = 1; existsSync(backup); attempt += 1) backup = `${target}.bak.${stamp}-${attempt}`
     if (!dryRun) {
       renameSync(target, backup)
       symlinkSync(source, target)
     }
-    return `replaced  ${rel}  (the previous file is at ${backup.slice(HOME.length + 1)})`
+    return `replaced  ${rel}  (the previous file is at ${display(backup)})`
   }
 
   if (!dryRun) {
@@ -89,6 +100,15 @@ function link(source, target, dryRun) {
     symlinkSync(source, target)
   }
   return `linked    ${rel}`
+}
+
+/**
+ * Shorten an absolute path under the home directory for display.
+ * @param path - Absolute path.
+ * @returns The path with `$HOME` written as `~`, or the path unchanged.
+ */
+function display(path) {
+  return path.startsWith(`${HOME}/`) ? `~/${path.slice(HOME.length + 1)}` : path
 }
 
 /**
@@ -152,6 +172,8 @@ process.stdout.write('\n')
 if (dryRun) process.stdout.write('  dry run: nothing was written.\n\n')
 else {
   process.stdout.write('Next:\n')
-  process.stdout.write('  1. The gates run on commit in any repository that has .githooks/pre-commit.\n')
+  process.stdout.write('  1. A repository whose .githooks/pre-commit is unreachable runs it only\n')
+  process.stdout.write('     once it carries agent-init.githooks=true; the scaffolder sets that for\n')
+  process.stdout.write('     you, and `git config --local agent-init.githooks true` does it by hand.\n')
   process.stdout.write('  2. An agent session can now use the agent-init-setup skill.\n\n')
 }
