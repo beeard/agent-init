@@ -253,6 +253,23 @@ test('typescript: the typecheck gate fails loud without the compiler', () => {
   }
 })
 
+test('typescript: the typecheck gate covers .mts and .cts when the config is silent', () => {
+  const repo = scaffold(['--name', 'demo', '--stack', 'typescript', '--no-hooks'])
+  try {
+    const configPath = join(repo, 'scripts', 'gates', 'config.json')
+    const config = JSON.parse(readFileSync(configPath, 'utf8'))
+    delete config.typescriptGlobs
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8')
+    write(repo, 'src/mod.mts', 'export const x: number = 1\n')
+    stubCompiler(repo)
+    const result = runGate(repo, 'verify-typescript-types.mjs')
+    assert.equal(result.code, 0, result.output)
+    assert.match(result.output, /1 file\(s\) checked/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
 test('typescript: the typecheck gate reports the compiler it spawns', () => {
   const repo = scaffold(['--name', 'demo', '--stack', 'typescript', '--no-hooks'])
   try {

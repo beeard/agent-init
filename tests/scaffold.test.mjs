@@ -7,7 +7,7 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSy
 import { dirname, join, sep } from 'node:path'
 import { STACKS, buildPlan } from '../src/plan.mjs'
 import { collectFiles, skipPredicate } from '../templates/base/scripts/gates/lib/repo-files.mjs'
-import { makeSandbox, removeSandbox, runCli, scaffold, PACKAGE_ROOT } from './helpers.mjs'
+import { makeSandbox, removeSandbox, runCli, scaffold, gitConfigEnv, PACKAGE_ROOT } from './helpers.mjs'
 
 /**
  * List every Markdown file in the package, excluding what the composed runs cover.
@@ -369,7 +369,7 @@ test('an activated repository is not opted in', () => {
     const result = spawnSync(process.execPath, [join(PACKAGE_ROOT, 'src', 'cli.mjs'), '.', '--name', 'demo'], {
       cwd: repo,
       encoding: 'utf8',
-      env: { ...process.env, GIT_CONFIG_GLOBAL: emptyConfig, GIT_CONFIG_NOSYSTEM: '1' },
+      env: gitConfigEnv(emptyConfig),
     })
     assert.equal(result.status, 0, `${result.stdout}${result.stderr}`)
     assert.match(`${result.stdout}${result.stderr}`, /activated/u)
@@ -448,7 +448,7 @@ test('does not point core.hooksPath over an existing $GIT_DIR hook', () => {
   // A global core.hooksPath would decide this branch instead, so it is emptied.
   const emptyConfig = join(repo, 'no-global-config')
   writeFileSync(emptyConfig, '', 'utf8')
-  const env = { ...process.env, GIT_CONFIG_GLOBAL: emptyConfig, GIT_CONFIG_NOSYSTEM: '1' }
+  const env = gitConfigEnv(emptyConfig)
   try {
     const gitHook = join(repo, '.git', 'hooks', 'pre-commit')
     writeFileSync(gitHook, '#!/bin/sh\necho old >&2\n', 'utf8')
@@ -475,7 +475,7 @@ test('a global core.hooksPath is left in place rather than overridden locally', 
   const repo = makeSandbox()
   const globalConfig = join(repo, 'global-gitconfig')
   writeFileSync(globalConfig, `[core]\n\thooksPath = ${join(repo, 'global-hooks')}\n`, 'utf8')
-  const env = { ...process.env, GIT_CONFIG_GLOBAL: globalConfig, GIT_CONFIG_NOSYSTEM: '1' }
+  const env = gitConfigEnv(globalConfig)
   try {
     const result = spawnSync(process.execPath, [join(PACKAGE_ROOT, 'src', 'cli.mjs'), '.', '--name', 'demo'], {
       cwd: repo,
@@ -657,6 +657,19 @@ test('reports a package type that is not ESM without changing it', () => {
     assert.equal(result.code, 0, result.output)
     assert.match(result.output, /package\.json "type" is "commonjs"/u)
     assert.equal(JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8')).type, 'commonjs')
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('adds scripts without inventing an empty devDependencies', () => {
+  const repo = makeSandbox()
+  try {
+    writeFileSync(join(repo, 'package.json'), `${JSON.stringify({ name: 'demo', scripts: { build: 'go build' } }, null, 2)}\n`, 'utf8')
+    assert.equal(runCli(['.', '--name', 'demo', '--stack', 'go', '--no-hooks'], repo).code, 0)
+    const pkg = JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8'))
+    assert.ok(!Object.hasOwn(pkg, 'devDependencies'), 'a scripts-only contribution must not add the key')
+    assert.equal(pkg.scripts['check:agents'], 'node scripts/gates/run.mjs')
   } finally {
     removeSandbox(repo)
   }

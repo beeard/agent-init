@@ -74,10 +74,8 @@ export function applyPlan(plan, { force = false, dryRun = false, hooks = true } 
     results.push(writeFile(manifestFile, { force, dryRun }))
   }
 
-  if (plan.package !== null) {
-    const entry = applyPackage(plan.package, { dryRun, notes })
-    if (entry !== null) results.push(entry)
-  }
+  const entry = applyPackage(plan.package, { dryRun, notes })
+  if (entry !== null) results.push(entry)
 
   if (plan.typescriptConfig !== null) reportTypescriptConfig(plan.typescriptConfig, notes)
   if (plan.typescriptConfig !== null && plan.package.exists && plan.package.moduleType !== 'module') {
@@ -324,7 +322,11 @@ function applyPackage(contribution, { dryRun, notes }) {
 
   if (!dryRun) {
     pkg.scripts = { ...contribution.additions.scripts, ...(isPlainObject(pkg.scripts) ? pkg.scripts : {}) }
-    pkg.devDependencies = { ...contribution.additions.devDependencies, ...(isPlainObject(pkg.devDependencies) ? pkg.devDependencies : {}) }
+    // Only when there is something to contribute: a run that adds scripts alone
+    // must not leave an empty `devDependencies` object behind.
+    if (dependencies.length > 0) {
+      pkg.devDependencies = { ...contribution.additions.devDependencies, ...(isPlainObject(pkg.devDependencies) ? pkg.devDependencies : {}) }
+    }
     writeText(contribution.path, toJson(pkg))
   }
   const detail = [
@@ -392,7 +394,20 @@ function reportTypescriptConfig(report, notes) {
  */
 function installHook(targetDir, { force, dryRun, notes }) {
   const hookPath = resolve(targetDir, '.githooks', 'pre-commit')
-  const present = existsSync(hookPath) ? readFileSync(hookPath, 'utf8') : null
+  let present = null
+  if (existsSync(hookPath)) {
+    // A directory, a symlink to nothing, or an unreadable file at this path is
+    // a layout this tool does not own. It is reported rather than allowed to
+    // abort the run or be overwritten.
+    try {
+      if (!statSync(hookPath).isFile()) throw new Error('not a regular file')
+      present = readFileSync(hookPath, 'utf8')
+    } catch (error) {
+      notes.push(`.githooks/pre-commit exists but could not be read (${error instanceof Error ? error.message : String(error)}); `
+        + 'left it alone and did not install the gates hook.')
+      return { relPath: '.githooks/pre-commit', outcome: 'kept', detail: 'not a readable file' }
+    }
+  }
   if (present !== null && present !== PRE_COMMIT && !force) {
     notes.push('.githooks/pre-commit already exists and was kept; the gates are not wired into it. '
       + 'Add `node scripts/gates/run.mjs --group commit` to it, or re-run with --force to replace it.')

@@ -13,26 +13,20 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { PACKAGE_ROOT, makeSandbox, removeSandbox } from './helpers.mjs'
+import { PACKAGE_ROOT, gitConfigEnv, makeSandbox, removeSandbox } from './helpers.mjs'
 
 /**
  * The environment that keeps every Git read and write inside the sandbox.
  *
- * `HOME` and `XDG_CONFIG_HOME` are not enough: `GIT_CONFIG_GLOBAL` takes
- * precedence over both when it is set in the developer's environment, so a run
- * without it would read and write the real global configuration.
+ * `HOME` and `XDG_CONFIG_HOME` are not enough on their own; the shared helper
+ * also pins `GIT_CONFIG_GLOBAL`, which takes precedence over both when it is set
+ * in the developer's environment.
  *
  * @param home - Absolute sandbox path.
  * @returns Environment variables for a sandboxed Git invocation.
  */
 function sandboxEnv(home) {
-  return {
-    ...process.env,
-    HOME: home,
-    XDG_CONFIG_HOME: join(home, '.config'),
-    GIT_CONFIG_GLOBAL: join(home, '.gitconfig'),
-    GIT_CONFIG_NOSYSTEM: '1',
-  }
+  return gitConfigEnv(join(home, '.gitconfig'), { HOME: home, XDG_CONFIG_HOME: join(home, '.config') })
 }
 
 /**
@@ -62,20 +56,6 @@ function makeHome() {
     env: sandboxEnv(home),
   })
   return home
-}
-
-/**
- * Read one value from a sandbox's global config.
- * @param home - Absolute sandbox path used as `$HOME`.
- * @param key - Config key.
- * @returns The configured value, trimmed.
- */
-function globalValue(home, key) {
-  const result = spawnSync('git', ['config', '--global', '--get', key], {
-    encoding: 'utf8',
-    env: sandboxEnv(home),
-  })
-  return (result.stdout ?? '').trim()
 }
 
 const HOOK = join(PACKAGE_ROOT, 'scripts', 'local', 'pre-commit.sh')

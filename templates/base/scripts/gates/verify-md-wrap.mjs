@@ -8,8 +8,8 @@
  * `--staged` checks the staged Markdown files within the configured corpus. The
  * pre-commit hook uses it: the rule is the one most often broken by accident,
  * so catching it at the moment it is introduced is worth more than the
- * whole-repository scan, and the staged subset stays fast on a repository of
- * any size while never judging a file the full run would not.
+ * whole-repository scan. It analyses only the staged documents, while never
+ * judging a file the full run would not.
  */
 
 import { readFileSync } from 'node:fs'

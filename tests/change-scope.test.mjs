@@ -11,16 +11,23 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { removeSandbox, scaffold } from './helpers.mjs'
+import { gitConfigEnv, removeSandbox, scaffold } from './helpers.mjs'
 
 /**
  * Run Git in a sandbox and require success.
+ *
+ * The environment is isolated: this is the only suite that creates commits, and
+ * a developer's global `commit.gpgsign` would otherwise fail every one of them.
+ *
  * @param repo - Absolute repository path.
  * @param args - Git arguments.
  * @returns Trimmed stdout.
  */
 function git(repo, args) {
-  const result = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8' })
+  const result = spawnSync('git', ['-C', repo, ...args], {
+    encoding: 'utf8',
+    env: gitConfigEnv(join(repo, '.gitconfig'), { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.com' }),
+  })
   assert.equal(result.status, 0, `git ${args.join(' ')} failed: ${result.stderr}`)
   return result.stdout.trim()
 }

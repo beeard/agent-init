@@ -31,7 +31,7 @@ const ROOT = resolve(import.meta.dirname, '..', '..')
  */
 function selectFiles(root) {
   const config = readConfig(resolve(root, 'scripts', 'gates', 'config.json'))
-  const globs = config.typescriptGlobs ?? ['**/*.ts', '**/*.tsx']
+  const globs = config.typescriptGlobs ?? ['**/*.ts', '**/*.tsx', '**/*.mts', '**/*.cts']
   const excluded = new Set(config.typescriptSkipDirectories ?? [])
   const isSkipped = relPath => relPath.split('/').some(segment => excluded.has(segment))
   return collectFiles(root, globs, isSkipped)
@@ -87,6 +87,13 @@ export function checkTypes(root) {
     encoding: 'utf8',
     maxBuffer: 128 * 1024 * 1024,
   })
+  // A spawn failure, a kill signal, or output past `maxBuffer` leaves no status
+  // to read, so it is named as the failure it is rather than reported as a type
+  // error the compiler never produced.
+  if (result.error !== undefined || typeof result.status !== 'number') {
+    const reason = result.error?.message ?? `terminated by ${String(result.signal)}`
+    return { checked: files.length, output: '', fatal: `cannot run the TypeScript compiler: ${reason}` }
+  }
   if (result.status === 0) return { checked: files.length, output: '', fatal: null }
   const output = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim() || `tsc exited with status ${String(result.status)}`
   return { checked: files.length, output, fatal: null }

@@ -8,7 +8,7 @@
 
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join, relative, resolve, sep } from 'node:path'
-import { isPlainObject, readJson, readJsonc, readText, slugify, substitute, today, toJson } from './util.mjs'
+import { isPlainObject, readJson, readJsonc, readText, slugify, substitute, today } from './util.mjs'
 
 /** Stack layers, selected by `--stack`. */
 export const STACKS = ['go', 'python', 'rust', 'typescript']
@@ -356,6 +356,25 @@ function packageContribution(targetDir, stack, variables) {
 }
 
 /**
+ * A stable rendering of a JSON value, for comparing two config values.
+ *
+ * Object keys and array members are sorted. The order of a `lib`, `types`, or
+ * `include` list carries no meaning, so comparing their written order would
+ * report a conflict where the two sides already agree, and recommend a change
+ * that changes nothing.
+ *
+ * @param value - Any JSON value.
+ * @returns A canonical string.
+ */
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${[...value].map(canonicalJson).sort().join(',')}]`
+  if (isPlainObject(value)) {
+    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
+/**
  * Compare an existing `tsconfig.json` against the layer's own config.
  *
  * An existing file is never merged or rewritten: it may carry comments that a
@@ -394,7 +413,9 @@ function typescriptConfigReport(targetDir, templatesRoot, stack) {
       ;(demanded ? required : suggested).push({ key, value })
       continue
     }
-    if (toJson(actual[key]) !== toJson(value)) conflicts.push({ key, found: actual[key], recommended: value, required: demanded })
+    if (canonicalJson(actual[key]) !== canonicalJson(value)) {
+      conflicts.push({ key, found: actual[key], recommended: value, required: demanded })
+    }
   }
   return { ...empty, required, suggested, conflicts }
 }

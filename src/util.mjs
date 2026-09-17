@@ -62,22 +62,34 @@ export function stripJsonComments(input) {
   const length = input.length
   let index = 0
 
+  /**
+   * Index just past a comment starting at `at`, or -1 when none starts there.
+   * The one scanner both trivia skipping and the main loop use, so the two
+   * cannot drift on how a comment ends.
+   */
+  const skipComment = (at) => {
+    if (input[at] !== '/') return -1
+    if (input[at + 1] === '/') {
+      let cursor = at + 2
+      while (cursor < length && input[cursor] !== '\n') cursor += 1
+      return cursor
+    }
+    if (input[at + 1] === '*') {
+      let cursor = at + 2
+      while (cursor < length && !(input[cursor] === '*' && input[cursor + 1] === '/')) cursor += 1
+      return Math.min(cursor + 2, length)
+    }
+    return -1
+  }
+
   /** Index just past the next run of whitespace and comments. */
   const skipTrivia = (from) => {
     let at = from
     for (;;) {
       while (at < length && /\s/u.test(input[at])) at += 1
-      if (input[at] === '/' && input[at + 1] === '/') {
-        while (at < length && input[at] !== '\n') at += 1
-        continue
-      }
-      if (input[at] === '/' && input[at + 1] === '*') {
-        at += 2
-        while (at < length && !(input[at] === '*' && input[at + 1] === '/')) at += 1
-        at += 2
-        continue
-      }
-      return at
+      const commentEnd = skipComment(at)
+      if (commentEnd === -1) return at
+      at = commentEnd
     }
   }
 
@@ -101,14 +113,9 @@ export function stripJsonComments(input) {
       }
       continue
     }
-    if (character === '/' && input[index + 1] === '/') {
-      while (index < length && input[index] !== '\n') index += 1
-      continue
-    }
-    if (character === '/' && input[index + 1] === '*') {
-      index += 2
-      while (index < length && !(input[index] === '*' && input[index + 1] === '/')) index += 1
-      index += 2
+    const commentEnd = skipComment(index)
+    if (commentEnd !== -1) {
+      index = commentEnd
       continue
     }
     if (character === ',') {

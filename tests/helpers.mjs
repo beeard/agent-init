@@ -10,6 +10,22 @@ export const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..
 export const CLI = join(PACKAGE_ROOT, 'src', 'cli.mjs')
 
 /**
+ * Environment that keeps a Git invocation off the developer's real config.
+ *
+ * `GIT_CONFIG_GLOBAL` takes precedence over `HOME` and `XDG_CONFIG_HOME`, so a
+ * test that isolates only those still reads the caller's global configuration —
+ * and a global `commit.gpgsign`, `core.hooksPath`, or user identity changes what
+ * the test does. Every Git spawn in the suite goes through here.
+ *
+ * @param configPath - Absolute path to the sandbox's global config file.
+ * @param extra - Additional environment variables to set.
+ * @returns Environment variables for a sandboxed Git invocation.
+ */
+export function gitConfigEnv(configPath, extra = {}) {
+  return { ...process.env, ...extra, GIT_CONFIG_GLOBAL: configPath, GIT_CONFIG_NOSYSTEM: '1' }
+}
+
+/**
  * Create a throwaway directory containing an empty Git repository.
  * @returns Absolute path to the sandbox.
  */

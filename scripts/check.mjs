@@ -56,51 +56,60 @@ function runGates(root, label) {
   const newline = checkFinalNewline(root)
   const tags = checkIssueTags(root)
   const tag = message => `${label}${message}`
-  const emptyCorpus = count => (count === 0 ? [tag('corpus is empty; the gate checked nothing')] : [])
+
+  // A gate that reads files and judged none of them has passed without checking
+  // anything, so each entry's own count decides whether that is a failure. A
+  // new file-reading gate is covered by marking it `corpus: true`.
+  const gate = ({ name, count, checked, failures, corpus = false }) => ({
+    name,
+    count,
+    checked,
+    failures: corpus && count === 0 ? [...failures, tag('corpus is empty; the gate checked nothing')] : failures,
+  })
 
   return [
-    { name: 'agent-note-tree', count: tree.notes.length, checked: `${tree.notes.length} record(s)`, failures: tree.errors.map(tag) },
-    {
+    gate({ name: 'agent-note-tree', count: tree.notes.length, checked: `${tree.notes.length} record(s)`, failures: tree.errors.map(tag) }),
+    gate({
       name: 'verify-agent-note-format',
       count: tree.notes.length,
       checked: `${tree.notes.length} record(s)`,
       failures: checkAgentNoteFormat(root).map(tag),
-    },
-    {
+    }),
+    gate({
       name: 'verify-md-wrap',
       corpus: true,
       count: wrap.checked,
       checked: `${wrap.checked} file(s)`,
-      failures: [...wrap.violations.map(v => tag(`${v.relPath}:${v.line}  ${v.text.slice(0, 70)}`)), ...emptyCorpus(wrap.checked)],
-    },
-    {
+      failures: wrap.violations.map(v => tag(`${v.relPath}:${v.line}  ${v.text.slice(0, 70)}`)),
+    }),
+    gate({
       name: 'verify-md-links',
       corpus: true,
       count: links.checked,
       checked: `${links.checked} file(s)`,
-      failures: [...links.violations.map(v => tag(`${v.relPath}:${v.line}  ${v.target} — ${v.reason}`)), ...emptyCorpus(links.checked)],
-    },
-    {
+      failures: links.violations.map(v => tag(`${v.relPath}:${v.line}  ${v.target} — ${v.reason}`)),
+    }),
+    gate({
       name: 'verify-final-newline',
       corpus: true,
       count: newline.checked,
       checked: `${newline.checked} file(s)`,
-      failures: [...newline.violations.map(v => tag(`${v.relPath}  ${v.reason}`)), ...emptyCorpus(newline.checked)],
-    },
-    {
+      failures: newline.violations.map(v => tag(`${v.relPath}  ${v.reason}`)),
+    }),
+    gate({
       name: 'verify-doc-budgets',
       corpus: true,
       count: budgets.count,
       checked: `${budgets.count} document(s)`,
-      failures: [...budgets.failures.map(tag), ...emptyCorpus(budgets.count)],
-    },
-    {
+      failures: budgets.failures.map(tag),
+    }),
+    gate({
       name: 'verify-issue-tags',
       corpus: true,
       count: tags.checked,
       checked: `${tags.checked} file(s), ${tags.markers.length} marker(s)`,
-      failures: [...tags.nameless.map(m => tag(`${m.relPath}:${m.line}  ${m.tag} names nothing`)), ...emptyCorpus(tags.checked)],
-    },
+      failures: tags.nameless.map(m => tag(`${m.relPath}:${m.line}  ${m.tag} names nothing`)),
+    }),
   ]
 }
 
@@ -120,8 +129,20 @@ function runComposedSuite(dir) {
   const result = spawnSync(process.execPath, [join(dir, 'scripts', 'gates', 'run.mjs'), '--group', 'full'], {
     cwd: dir,
     encoding: 'utf8',
+    timeout: 300_000,
+    maxBuffer: 64 * 1024 * 1024,
   })
-  return { code: result.status ?? 1, output: `${result.stdout ?? ''}${result.stderr ?? ''}`.trimEnd() }
+  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`.trimEnd()
+  // A spawn failure or a buffer overflow leaves no status, and a status of 1
+  // with empty output would read as a gate finding rather than as the suite
+  // never having run. Both are named.
+  if (result.error !== undefined) {
+    return { code: 1, output: `the composed suite did not run: ${result.error.message}\n${output}`.trimEnd() }
+  }
+  if (typeof result.status !== 'number') {
+    return { code: 1, output: `the composed suite was terminated by ${String(result.signal)}\n${output}`.trimEnd() }
+  }
+  return { code: result.status, output }
 }
 
 /**
