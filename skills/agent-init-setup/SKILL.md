@@ -9,15 +9,18 @@ The tool writes a self-contained tree into the repository: `AGENTS.md` with stan
 
 ## Find the tool
 
-It is run from a clone, from a linked command, or through `npx`. Check in that order:
+It is run from a clone, from a linked command, or through `npx`. Check the coordinate this skill was installed with, then the local checks, in that order:
 
 ```sh
+for f in ~/.claude/skills/agent-init-setup.json .claude/skills/agent-init-setup.json; do
+  if [ -f "$f" ]; then cat "$f"; break; fi
+done
 command -v agent-init || ls ./*/src/cli.mjs 2>/dev/null
 ```
 
-If neither answers, the tool is not installed here. Ask before fetching it, then run it through `npx` at the version this skill came with — an unpinned `npx` is a silent upgrade mid-run, and the tool is not published under a name anyone should install blind.
+The coordinate file is written when the skill is installed from a package, and its `npx` field is the exact specifier to run — package name and version together. Use that specifier and never an unpinned `npx`, which upgrades silently mid-run.
 
-Do not improvise a substitute for the tool: a hand-written `AGENTS.md` is what the run replaces.
+If nothing answers, the skill was installed by hand and the tool is not here. Ask the user where their clone is, or which package and version to run. Do not guess a package name: `npx` fetches and executes whatever the name resolves to, so a guess at an unpublished name is a typosquat target rather than a lookup. Do not improvise a substitute for the tool either — a hand-written `AGENTS.md` is what the run replaces.
 
 A linked command needs the file to be executable. If `command -v agent-init` finds a path that fails with `Permission denied`, run `chmod +x` on the `src/cli.mjs` the link points at, and report it upstream rather than working around it.
 
@@ -81,6 +84,8 @@ agent-init . --name "<Project Name>" --stack <a> [--stack <b>] [--lenient]
 - **An existing `tsconfig.json`** → the tool keeps it untouched and prints a note for every option the TypeScript orders assume but the file does not set, and for every value that differs from the recommended one. A `package.json` whose `type` is not `module` is reported the same way, because ESM depends on it.
 
 When it reports findings on an existing config, **ask before editing**. Say which options are missing or differ and why they matter, then apply them only on a yes. Edit the file in place so its comments survive — never round-trip it through a JSON writer, and never narrow `strict` or `include` to make a finding go away.
+
+**Scaffold the framework first, then run this.** A generator such as `create-next-app` or `cargo new` writes its own `tsconfig.json`, `package.json`, or manifest, and one run on an empty directory would have those replace what the tool wrote. Run the generator first: the tool then finds the configuration, leaves it alone, and reports what it does not set. That report is the decision to make, not an error to clear.
 
 ## Afterwards
 

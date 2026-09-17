@@ -7,7 +7,7 @@
  * this package, so the receiving repository owns the result outright.
  */
 
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { basename, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -208,6 +208,9 @@ function renderSkillReport(report, dryRun) {
     : ''
   const lines = [`  ${report.outcome.padEnd(9)} ${report.target}${detail}`]
   if (report.backup !== null) lines.push(`  ${'backed up'.padEnd(9)} ${report.backup}`)
+  if (report.coordinate.path !== null) {
+    lines.push(`  ${(report.coordinate.changed ? 'recorded' : 'ok').padEnd(9)} ${report.coordinate.path}  ${report.coordinate.specifier}`)
+  }
   lines.push('')
   if (dryRun) {
     lines.push('  dry run: nothing was written.')
@@ -220,6 +223,22 @@ function renderSkillReport(report, dryRun) {
 }
 
 /**
+ * This package's own name and version, as an agent needs them to run it again.
+ * @returns `{ name, version }`, or null when the manifest cannot be read.
+ */
+function ownCoordinate() {
+  try {
+    const manifest = JSON.parse(readFileSync(resolve(HERE, '..', 'package.json'), 'utf8'))
+    if (typeof manifest.name !== 'string' || typeof manifest.version !== 'string') return null
+    return { name: manifest.name, version: manifest.version }
+  } catch {
+    // Without it the skill still works from a clone, so this is reported rather
+    // than fatal.
+    return null
+  }
+}
+
+/**
  * Install this package's setup skill, and nothing else.
  * @param options - Parsed `--install-skill` options.
  * @returns Process exit code.
@@ -229,9 +248,13 @@ function installSkill(options) {
     ...(options.skillDir === undefined ? {} : { dir: resolve(options.skillDir) }),
     link: options.link,
     dryRun: options.dryRun,
+    coordinate: ownCoordinate(),
   })
   process.stdout.write(`agent-init: ${options.dryRun ? 'plan for' : 'installed'} the setup skill\n\n`)
   process.stdout.write(`${renderSkillReport(report, options.dryRun)}\n`)
+  if (report.coordinate.path === null) {
+    process.stdout.write("\n  note: this package's manifest could not be read, so the skill records no package to run.\n")
+  }
   return 0
 }
 

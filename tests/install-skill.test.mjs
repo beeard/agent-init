@@ -43,6 +43,35 @@ test('copies the setup skill into the agent skills directory', () => {
   }
 })
 
+test('records the package the skill was installed from', () => {
+  const { home, result } = install()
+  try {
+    assert.equal(result.code, 0, result.output)
+    // Without this an agent holding a skill from a registry has no package name
+    // to run, and guessing one is the typosquat vector rather than a lookup.
+    const coordinate = JSON.parse(readFileSync(join(home, '.claude', 'skills', 'agent-init-setup.json'), 'utf8'))
+    const manifest = JSON.parse(readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf8'))
+    assert.equal(coordinate.npx, `${manifest.name}@${manifest.version}`)
+    assert.equal(coordinate.version, manifest.version)
+  } finally {
+    removeSandbox(home)
+  }
+})
+
+test('records the coordinate outside a linked skill, not into the clone', () => {
+  const { home, result } = install(['--link'])
+  try {
+    assert.equal(result.code, 0, result.output)
+    const coordinate = join(home, '.claude', 'skills', 'agent-init-setup.json')
+    assert.ok(existsSync(coordinate), 'the coordinate sits beside the link')
+    // The link target is this package; writing into it would make a read-only
+    // checkout unwritable and would not be the link's to change.
+    assert.ok(!existsSync(join(SKILL_SOURCE, 'agent-init-setup.json')), 'the package must not gain the file')
+  } finally {
+    removeSandbox(home)
+  }
+})
+
 test('a second install reports no change', () => {
   const home = makeSandbox()
   try {

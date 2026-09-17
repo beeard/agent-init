@@ -13,12 +13,23 @@
  * caller: the clone installer shortens `$HOME` to `~` and the CLI does not.
  */
 
-import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync } from 'node:fs'
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
 /** Directory name this package's setup skill is installed under. */
 export const SETUP_SKILL = 'agent-init-setup'
+
+/**
+ * File written beside the installed skill, naming the package it came from.
+ *
+ * A skill installed from a clone can find the tool through the clone; one
+ * installed from a registry cannot, and a skill that does not know its own
+ * package name leaves an agent to guess, which is the typosquat vector rather
+ * than a lookup. The name is written at install time because that is the only
+ * moment that knows both facts.
+ */
+export const COORDINATE_FILE = `${SETUP_SKILL}.json`
 
 /**
  * Where an agent looks for a user-scope skill.
@@ -131,17 +142,60 @@ export function copyPath(source, target, dryRun = false) {
 }
 
 /**
+ * Record the coordinate an agent needs to run this tool again.
+ *
+ * It sits beside the skill directory rather than inside the package it names,
+ * so linking to a clone does not write into the clone. A run that is already
+ * current rewrites nothing.
+ *
+ * @param dir - Absolute skills directory the skill was installed into.
+ * @param coordinate - `npx` specifier and version, or `null` to write nothing.
+ * @param dryRun - Report without touching the filesystem.
+ * @returns Outcome with `path`, `changed`, and `specifier`.
+ */
+export function writeCoordinate(dir, coordinate, dryRun = false) {
+  if (coordinate === null) return { path: null, changed: false, specifier: null }
+  const { name, version } = coordinate
+  const specifier = `${name}@${version}`
+  const path = join(dir, COORDINATE_FILE)
+  const content = `${JSON.stringify({ npx: specifier, version }, null, 2)}\n`
+  const held = existsSync(path) ? readFileSync(path, 'utf8') : null
+  if (held === content) return { path, changed: false, specifier }
+  if (!dryRun) {
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(path, content)
+  }
+  return { path, changed: true, specifier }
+}
+
+/**
  * Install the setup skill into an agent's skills directory.
  * @param source - Absolute path to the skill directory in this package.
- * @param options - `dir` overrides the destination; `link` symlinks instead of copying; `dryRun` writes nothing.
- * @returns Outcome with `target`, `mode`, `outcome`, `linkTarget`, and `backup`.
+ * @param options - `dir` overrides the destination; `link` symlinks instead of copying; `dryRun` writes nothing; `coordinate` names the package the skill came from.
+ * @returns Outcome with `target`, `mode`, `outcome`, `linkTarget`, `backup`, and `coordinate`.
  */
-export function installSetupSkill(source, { dir = userSkillsDir(), link = false, dryRun = false } = {}) {
+export function installSetupSkill(source, { dir = userSkillsDir(), link = false, dryRun = false, coordinate = null } = {}) {
   const target = resolve(dir, SETUP_SKILL)
-  if (link) return { target, mode: 'link', ...linkPath(source, target, dryRun) }
+  const result = link
+    ? { target, mode: 'link', ...linkPath(source, target, dryRun) }
+    : { target, mode: 'copy', ...copyOutcome(source, target, dryRun) }
+  // Recorded after the skill is in place: a coordinate pointing at a skill that
+  // is not there is the same false "installed" this file exists to prevent.
+  const recorded = writeCoordinate(dirname(target), coordinate, dryRun)
+  return { ...result, coordinate: recorded }
+}
+
+/**
+ * Copy, with the three outcomes a caller renders.
+ * @param source - Absolute source directory.
+ * @param target - Absolute destination path.
+ * @param dryRun - Report without touching the filesystem.
+ * @returns Outcome with `outcome` and `backup`.
+ */
+function copyOutcome(source, target, dryRun) {
   const result = copyPath(source, target, dryRun)
   // One vocabulary for both modes, so a caller renders a link and a copy the
   // same way: `linked` and `copied` are the same event with different means.
   const outcome = result.outcome === 'fresh' ? 'copied' : result.outcome === 'current' ? 'ok' : result.outcome
-  return { target, mode: 'copy', linkTarget: null, ...result, outcome }
+  return { ...result, outcome }
 }
