@@ -47,10 +47,11 @@ export function removeSandbox(dir) {
  * Run the scaffold CLI.
  * @param args - Arguments after the script path.
  * @param cwd - Working directory for the child process.
+ * @param env - Extra environment variables, for a run that must not read the real `$HOME`.
  * @returns Exit code and combined output.
  */
-export function runCli(args, cwd = PACKAGE_ROOT) {
-  const result = spawnSync(process.execPath, [CLI, ...args], { cwd, encoding: 'utf8' })
+export function runCli(args, cwd = PACKAGE_ROOT, env = {}) {
+  const result = spawnSync(process.execPath, [CLI, ...args], { cwd, encoding: 'utf8', env: { ...process.env, ...env } })
   return { code: result.status ?? 1, output: `${result.stdout}${result.stderr}` }
 }
 

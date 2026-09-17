@@ -2,38 +2,33 @@
 
 Scaffold an agent-operating structure into any repository.
 
-It writes a self-contained tree — standing orders, decision records, skills, and the gates that enforce them. Nothing it writes refers back to this package: the receiving repository owns the result outright, and its rules keep working if this tool is never run again.
+It writes a self-contained tree — standing orders, decision records, skills, and the gates that enforce them. Nothing it writes refers back to this package: the receiving repository owns the result, and its rules keep working if this tool is never run again.
 
 ## Why
 
-An agent working in a repository with no written rules will invent some. They will be inconsistent session to session, invisible to review, and impossible to improve.
+An agent working in a repository with no written rules invents them instead. They will be inconsistent session to session, invisible to review, and impossible to improve.
 
-Written rules have the opposite failure: a document nobody reads, drifting away from what the code does. `agent-init` addresses both by shipping rules **together with the checks that enforce them**. A rule no check can verify is a suggestion; a check with no stated rule is a mystery. The pair is the product.
+Written rules fail the other way: a document nobody reads, drifting away from what the code does. `agent-init` addresses both by shipping rules **together with the checks that enforce them**. A rule no check can verify is a suggestion; a check with no stated rule is a mystery. The pair is the product.
 
 ## Quick start
 
-```sh
-node /path/to/agent-init/src/cli.mjs . --name "My Project"
-```
-
-Or link it once and use it anywhere:
+From a fresh repository:
 
 ```sh
-ln -s /path/to/agent-init/src/cli.mjs ~/.local/bin/agent-init
-cd ~/Projects/new-thing && agent-init . --stack python
+npx agent-init . --name "My Project" --stack python
 ```
 
-Then:
+`npx` needs neither an install nor a clone. `--stack` is optional and repeatable, and needs that language's toolchain. Then the shipped gates, in the repository it wrote: `node scripts/gates/run.mjs`.
+
+## Let an agent do it
+
+The package ships the procedure as a skill: it reads the repository, picks the language profiles, and runs the tool. One command installs it into `~/.claude/skills/`, so no later session needs this page:
 
 ```sh
-node scripts/gates/run.mjs   # the shipped gates, against your new tree
+npx agent-init --install-skill
 ```
 
-Or let an agent do it: the package ships a Claude Code skill that reads the repository, picks the language profiles, and runs the tool.
-
-```sh
-ln -s /path/to/agent-init/skills/agent-init-setup ~/.claude/skills/agent-init-setup
-```
+From a clone, `ln -s <clone>/skills/agent-init-setup ~/.claude/skills/agent-init-setup` links it instead, so edits to the clone take effect.
 
 ## What it writes
 
@@ -43,16 +38,17 @@ CLAUDE.md                     → AGENTS.md
 .agents/
   manifest.json               what was adopted, and when
   notes/                      the decision-record tree and its standard
-  skills/                     four workflows, prefixed with the project slug
+  skills/                     four workflows, each a skill named by its directory
+.claude/skills/               → those, linked for the agent to read
 docs/
   AGENTS.md                   the documentation standard: tiers, budgets, slop checklist
   architecture.md             the system map, as a skeleton to fill in
-  defensive-patterns.md       bug classes that shipped, stated as the rule that prevents recurrence
+  defensive-patterns.md       bug classes that shipped, as the rule that prevents recurrence
 scripts/gates/                the checks, zero dependencies
 .githooks/pre-commit          what runs on every commit, installed and activated
 ```
 
-The hook is installed without displacing anything: an existing `.githooks/pre-commit` is kept unless `--force` is given, and `core.hooksPath` is left alone when it points elsewhere in any scope or `.git/hooks` already holds an executable hook — Git reads one or the other, never both. It reports `not activated` and the way to enable it: `git config core.hooksPath .githooks`, which replaces the other directory's hooks rather than adding to them; to run both, have one call the other.
+The hook does not displace anything: an existing `.githooks/pre-commit` is kept unless `--force` is given, and `core.hooksPath` is left alone when it points elsewhere in any scope or `.git/hooks` holds an executable hook — Git reads one or the other, never both. It reports `not activated` and how to enable it: `git config core.hooksPath .githooks`, which replaces the other directory's hooks.
 
 ## Options
 
@@ -62,13 +58,14 @@ The hook is installed without displacing anything: an existing `.githooks/pre-co
 | `--stack <name>` | Add a language profile. Repeatable. Available: `go`, `python`, `rust`, `typescript`. |
 | `--skills a,b,c` | Which skills to include, or `all`. |
 | `--with-architecture` | Add the composition discipline (below). |
-| `--lenient` | Mark every gate advisory, for adopting on an existing repository. |
-| `--no-hooks` | Do not install the pre-commit hook. |
+| `--lenient` | Mark every gate advisory, for adopting an existing repository. |
+| `--no-hooks` | Do not install the pre-commit hook |
 | `--force` | Overwrite files that already exist. |
 | `--dry-run` | Print the plan, write nothing. |
 | `--allow-non-git` | Scaffold outside a Git worktree. |
+| `--install-skill` | Install the setup skill instead of scaffolding; `--link`, `--skill-dir`. |
 
-Re-running is safe: existing files are kept unless you pass `--force`.
+Re-running keeps existing files unless `--force`.
 
 ## The layers
 
@@ -76,9 +73,9 @@ Layers apply in order, and each adds to the ones below it.
 
 **`base`** is the general structure. It knows nothing about how your software is built, and applies to a Python library, a Go service, or a documentation repository equally.
 
-**`--stack <name>`** adds what is specific to one language. Each profile ships a testing guide, standing orders, and a gate that enforces a rule that language's community already agrees on.
+**`--stack <name>`** adds what is specific to one language. Each profile ships a testing guide, standing orders, and a gate enforcing a rule that language's community agrees on.
 
-The gate in every profile **delegates to the language's own tooling** rather than reimplementing a parser. A hand-rolled scan does not fail loudly: it misreads decorators, grouped declarations, and type parameters, and reports findings that are wrong rather than merely incomplete.
+The gate in every profile **delegates to the language's own tooling** rather than reimplementing a parser. A hand-rolled scan misreads decorators, grouped declarations, and type parameters, and reports findings that are wrong rather than merely incomplete.
 
 | Stack | Gate | Analyzes through |
 |---|---|---|
@@ -90,12 +87,12 @@ The gate in every profile **delegates to the language's own tooling** rather tha
 
 Every stack gate ships **advisory**: it reports findings without failing the run. Adopting on an existing codebase would otherwise greet the first run with the complete backlog of undocumented definitions. Clear the findings, then remove `"advisory": true` from that gate's entry in the generated `scripts/gates/gates.json`.
 
-Two of them need something before they can run, and say so plainly when it is missing:
+Two of them need something before they can run, and say so when it is missing:
 
 - **Rust** needs `#![warn(missing_docs)]` in each crate root. The lint is built into rustc, so the compiler already has the check — but it only fires when the crate enables it, and a gate that reports a clean run because its own check was silently disabled is worse than no gate. Add the attribute; the gate fails loud until you do.
 - **TypeScript** needs `typescript` resolvable from your repository, which any TypeScript project already has. It is your dependency, not this package's.
 
-**`--stack typescript` also initialises the project.** A repository with no `tsconfig.json` gets the strict ESM config the standing orders describe, and a `package.json` (if it had none) declaring `typescript`, `typecheck`, and the gate scripts — run `npm install` afterwards. An existing `tsconfig.json` is left alone short of `--force`: the run reports every option the orders assume but the file does not set, and every value that differs from the recommended one, so you can decide. `verify-typescript-types` needs both a config and the compiler, and names whichever is missing.
+**`--stack typescript` also initialises the project.** A repository with no `tsconfig.json` gets the strict ESM config the standing orders describe, and a `package.json` (if it had none) declaring `typescript`, `typecheck`, and the gate scripts — run `npm install` afterwards. An existing `tsconfig.json` is left alone unless `--force`: the run reports every option the orders assume but the file does not set or sets differently. `verify-typescript-types` needs both a config and the compiler, and names whichever is missing.
 
 **`--with-architecture`** adds the composition discipline: a system assembled from plugins, capability seams with their three roles, registrations as reversible effects, and the rule that anything model-visible is logged. Use it when the system really is composed that way; skip it otherwise, because a map of an architecture you do not have is worse than no map.
 

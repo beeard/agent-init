@@ -9,13 +9,15 @@ The tool writes a self-contained tree into the repository: `AGENTS.md` with stan
 
 ## Find the tool
 
-It is run from a clone or from a linked command. Check in that order:
+It is run from a clone, from a linked command, or through `npx`. Check in that order:
 
 ```sh
 command -v agent-init || ls ./*/src/cli.mjs 2>/dev/null
 ```
 
-If neither answers, ask the user where the clone is rather than guessing — the tool is not published, so there is no canonical download location to fall back on. Do not improvise a substitute, and do not reach for `npx`: the package is not published.
+If neither answers, the tool is not installed here. Ask before fetching it, then run it through `npx` at the version this skill came with — an unpinned `npx` is a silent upgrade mid-run, and the tool is not published under a name anyone should install blind.
+
+Do not improvise a substitute for the tool: a hand-written `AGENTS.md` is what the run replaces.
 
 A linked command needs the file to be executable. If `command -v agent-init` finds a path that fails with `Permission denied`, run `chmod +x` on the `src/cli.mjs` the link points at, and report it upstream rather than working around it.
 

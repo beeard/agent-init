@@ -96,6 +96,68 @@ test('includes only the requested skills', () => {
   }
 })
 
+test('links each skill under the name the repository refers to it by', () => {
+  const repo = scaffold(['--name', 'demo', '--skills', 'agent-notes,prose-standard'])
+  try {
+    for (const skill of ['agent-notes', 'prose-standard']) {
+      const name = `demo-${skill}`
+      const link = join(repo, '.claude', 'skills', name)
+      assert.ok(existsSync(link), `expected .claude/skills/${name} to exist`)
+      if (lstatSync(link).isSymbolicLink()) {
+        // Relative, so the receiving repository can move or be cloned: the
+        // target is resolved against the link's own directory, not this machine.
+        assert.equal(readlinkSync(link), `../../.agents/skills/${name}`)
+      }
+      // Claude Code registers a skill under its directory name, so that name and
+      // the `name:` it declares have to agree; a mismatch is what made every
+      // reference in AGENTS.md point at a skill that was not registered.
+      const declared = /^name: (.+)$/mu.exec(readFileSync(join(link, 'SKILL.md'), 'utf8'))
+      assert.equal(declared?.[1], name, `${name} must declare the name it is registered under`)
+    }
+    // A skill the run did not select is linked no more than it is written.
+    assert.ok(!existsSync(join(repo, '.claude', 'skills', 'demo-code-review')))
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('every skill AGENTS.md names is one the run registered', () => {
+  const repo = scaffold(['--name', 'demo'])
+  try {
+    // The check the defect needed: a skill table that names an unregistered
+    // skill is a reference no agent can follow, and nothing compared the two.
+    const referenced = new Set()
+    for (const doc of ['AGENTS.md', join('docs', 'AGENTS.md')]) {
+      const text = readFileSync(join(repo, doc), 'utf8')
+      for (const found of text.matchAll(/`(demo-[a-z-]+)`/gu)) referenced.add(found[1])
+    }
+    assert.ok(referenced.size > 0, 'expected the standing orders to name at least one skill')
+    for (const name of referenced) {
+      assert.ok(existsSync(join(repo, '.claude', 'skills', name)), `${name} is named but not registered`)
+    }
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('keeps a .claude/skills entry the repository already had', () => {
+  const repo = makeSandbox()
+  try {
+    // The negative control for the link above: a path this tool does not own is
+    // kept, so the run cannot be reported as having linked over someone's work.
+    const held = join(repo, '.claude', 'skills', 'demo-agent-notes')
+    mkdirSync(held, { recursive: true })
+    writeFileSync(join(held, 'SKILL.md'), 'the repository put this here\n')
+
+    const result = runCli(['.', '--name', 'demo'], repo)
+    assert.equal(result.code, 0)
+    assert.equal(readFileSync(join(held, 'SKILL.md'), 'utf8'), 'the repository put this here\n')
+    assert.ok(!lstatSync(held).isSymbolicLink(), 'an existing directory must not be replaced by a link')
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
 test('refuses an unknown skill name', () => {
   const repo = makeSandbox()
   try {

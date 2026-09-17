@@ -14,9 +14,11 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { BASE_SKILLS, STACKS, buildPlan } from './plan.mjs'
 import { applyPlan } from './apply.mjs'
+import { installSetupSkill } from './skill-install.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const TEMPLATES_ROOT = resolve(HERE, '..', 'templates')
+const SETUP_SKILL_DIR = resolve(HERE, '..', 'skills', 'agent-init-setup')
 
 const USAGE = `agent-init — adopt the agent-operating structure in a repository
 
@@ -42,8 +44,30 @@ Options
   --force              Overwrite files that already exist
   --dry-run            Print the plan without writing anything
   --allow-non-git      Scaffold outside a Git worktree
+  --install-skill      Install this package's setup skill into the agent's skills
+                       directory instead of scaffolding, so later sessions can run
+                       the tool without this prompt. Combine with --dry-run to
+                       only report.
+  --link               With --install-skill: symlink instead of copying. Only
+                       right when this package will not move; npm may prune the
+                       directory it is fetched into.
+  --skill-dir <path>   With --install-skill: the skills directory to install into
+                       (default: ~/.claude/skills)
   --help               Show this message
 `
+
+/**
+ * Options that only mean something for a scaffold run.
+ *
+ * `--install-skill` is a different operation, not a variant of one, so these
+ * are refused beside it rather than ignored: a run that quietly dropped
+ * `--stack python` and installed a skill would report success for work it never
+ * did.
+ */
+const SCAFFOLD_ONLY = [
+  'name', 'skills', 'stack', 'with-architecture', 'lenient', 'no-hooks',
+  'force', 'allow-non-git',
+]
 
 /**
  * Parse command-line arguments.
@@ -64,11 +88,36 @@ function parseCli(argv) {
       force: { type: 'boolean', default: false },
       'dry-run': { type: 'boolean', default: false },
       'allow-non-git': { type: 'boolean', default: false },
+      'install-skill': { type: 'boolean', default: false },
+      link: { type: 'boolean', default: false },
+      'skill-dir': { type: 'string' },
       help: { type: 'boolean', default: false },
     },
     strict: true,
   })
   if (values.help) return { help: true }
+
+  if (values['install-skill']) {
+    // `name` and `force` carry defaults, so their presence in `values` is not
+    // evidence the caller passed them; the other listed options have none.
+    const given = SCAFFOLD_ONLY.filter(key => givenOption(key, values, positionals))
+    if (given.length > 0) {
+      throw new Error(`--install-skill installs a skill and scaffolds nothing, so ${given.map(key => `--${key}`).join(', ')} cannot be combined with it`)
+    }
+    if (positionals.length > 0) {
+      throw new Error(`--install-skill takes no target directory, got "${positionals[0]}"`)
+    }
+    return {
+      installSkill: true,
+      link: values.link,
+      skillDir: values['skill-dir'],
+      dryRun: values['dry-run'],
+    }
+  }
+  if (values.link || values['skill-dir'] !== undefined) {
+    throw new Error('--link and --skill-dir only apply to --install-skill')
+  }
+
   if (positionals.length > 1) throw new Error(`expected at most one target directory, got ${positionals.length}`)
   const target = resolve(positionals[0] ?? process.cwd())
   const chosen = values.skills === undefined
@@ -129,6 +178,64 @@ function renderReport(report, dryRun) {
 }
 
 /**
+ * Whether an option only means something for a scaffold run.
+ *
+ * `name`, `force`, and the rest carry defaults, so a key that is merely present
+ * says nothing; only an explicit value does. A caller that set one of the
+ * boolean flags without a default did pass it. The target positional counts as
+ * the `name` option does, because both name a repository to scaffold.
+ *
+ * @param key - Option name.
+ * @param values - Parsed values.
+ * @param positionals - Parsed positional arguments.
+ * @returns True when the caller supplied it.
+ */
+function givenOption(key, values, positionals) {
+  if (key === 'name') return values.name !== undefined || positionals.length > 0
+  if (key === 'skills' || key === 'stack') return values[key] !== undefined
+  return values[key] === true
+}
+
+/**
+ * Render the outcome of an `--install-skill` run.
+ * @param report - Report from `installSetupSkill`.
+ * @param dryRun - Whether the run only simulated.
+ * @returns Human-readable lines.
+ */
+function renderSkillReport(report, dryRun) {
+  const detail = report.outcome === 'linked' || report.outcome === 'relinked'
+    ? ` -> ${report.linkTarget}`
+    : ''
+  const lines = [`  ${report.outcome.padEnd(9)} ${report.target}${detail}`]
+  if (report.backup !== null) lines.push(`  ${'backed up'.padEnd(9)} ${report.backup}`)
+  lines.push('')
+  if (dryRun) {
+    lines.push('  dry run: nothing was written.')
+    return lines.join('\n')
+  }
+  lines.push(`  mode: ${report.mode}. A copy survives npm pruning the directory this package was fetched into.`)
+  lines.push('')
+  lines.push('Next: a session started in any repository can now use the agent-init-setup skill.')
+  return lines.join('\n')
+}
+
+/**
+ * Install this package's setup skill, and nothing else.
+ * @param options - Parsed `--install-skill` options.
+ * @returns Process exit code.
+ */
+function installSkill(options) {
+  const report = installSetupSkill(SETUP_SKILL_DIR, {
+    ...(options.skillDir === undefined ? {} : { dir: resolve(options.skillDir) }),
+    link: options.link,
+    dryRun: options.dryRun,
+  })
+  process.stdout.write(`agent-init: ${options.dryRun ? 'plan for' : 'installed'} the setup skill\n\n`)
+  process.stdout.write(`${renderSkillReport(report, options.dryRun)}\n`)
+  return 0
+}
+
+/**
  * Run the CLI.
  * @param argv - Arguments after the script path.
  * @returns Process exit code.
@@ -145,6 +252,7 @@ function main(argv) {
     process.stdout.write(USAGE)
     return 0
   }
+  if (options.installSkill) return installSkill(options)
 
   if (!existsSync(options.target) || !statSync(options.target).isDirectory()) {
     process.stderr.write(`agent-init: ${options.target} is not a directory\n`)

@@ -189,6 +189,28 @@ export function buildPlan({ targetDir, templatesRoot, projectName, skills, stack
     fallback: '@AGENTS.md\n',
   })
 
+  // The skills are written to the agent-neutral `.agents/skills/`, which Claude
+  // Code does not read, so each one is also linked into the location it does.
+  //
+  // The link keeps the `<slug>-` prefix, because the registered name is the
+  // directory name: a bare `agent-notes` would collide with a personal skill of
+  // that name, and personal skills take precedence over project ones. Every
+  // reference in AGENTS.md and each skill's `name:` therefore name the prefixed
+  // skill, and this link is what makes that name reachable.
+  //
+  // Relative, so the link resolves against its own directory and survives a
+  // clone instead of carrying the scaffolding machine's path.
+  for (const skill of skills) {
+    const name = `${variables.SLUG}-${skill}`
+    symlinks.push({
+      kind: 'symlink',
+      path: resolve(targetDir, '.claude', 'skills', name),
+      relPath: `.claude/skills/${name}`,
+      target: `../../.agents/skills/${name}`,
+      dir: true,
+    })
+  }
+
   return {
     targetDir,
     variables,

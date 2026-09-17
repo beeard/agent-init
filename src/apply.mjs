@@ -254,8 +254,16 @@ function mergeJson(file, { force, dryRun }) {
 }
 
 /**
- * Create the `CLAUDE.md` link, falling back to an import statement when the
- * platform refuses symlinks.
+ * Create a link the plan owns, falling back where the platform refuses
+ * symlinks.
+ *
+ * A link to a file falls back to an `@`-import, which reaches the same content
+ * through Claude Code's own resolution. A link to a directory has no such
+ * fallback: a written file there would occupy the skill directory and shadow
+ * the skill rather than expose it, and copying the tree would leave two copies
+ * to drift. So it is reported as skipped, which is true — the copy is still at
+ * the path the link names.
+ *
  * @param link - A `symlink` action.
  * @param options - Dry-run flag.
  * @returns Outcome entry.
@@ -263,10 +271,20 @@ function mergeJson(file, { force, dryRun }) {
 function createSymlink(link, { dryRun }) {
   if (existsSync(link.path)) return { relPath: link.relPath, outcome: 'kept', detail: 'exists' }
   if (dryRun) return { relPath: link.relPath, outcome: 'linked', detail: `-> ${link.target}` }
+  // A nested link's parent directory is the tool's own to create; the plan's
+  // own paths are the only ones this ever touches.
+  if (link.dir === true) mkdirSync(dirname(link.path), { recursive: true })
   try {
-    symlinkSync(link.target, link.path)
+    symlinkSync(link.target, link.path, link.dir === true ? 'dir' : 'file')
     return { relPath: link.relPath, outcome: 'linked', detail: `-> ${link.target}` }
   } catch {
+    if (link.dir === true) {
+      return {
+        relPath: link.relPath,
+        outcome: 'skipped',
+        detail: `this platform refused a directory link; the skill is at ${link.target}`,
+      }
+    }
     // Windows without developer mode rejects symlinks; an `@`-import reaches the
     // same file through Claude Code's own resolution.
     writeText(link.path, link.fallback)

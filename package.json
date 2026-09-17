@@ -4,7 +4,7 @@
   "description": "Scaffold an agent-operating structure into any repository: standing orders, decision records, skills, and the gates that enforce them.",
   "type": "module",
   "bin": {
-    "agent-init": "./src/cli.mjs"
+    "agent-init": "src/cli.mjs"
   },
   "exports": {
     ".": "./src/plan.mjs",
@@ -14,9 +14,19 @@
     "src",
     "skills",
     "templates",
+    "LICENSE",
     "README.md",
     "AGENTS.md"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/beeard/agent-init.git"
+  },
+  "homepage": "https://github.com/beeard/agent-init#readme",
+  "bugs": {
+    "url": "https://github.com/beeard/agent-init/issues"
+  },
+  "author": "Tom Steinar Thorsen <tomsteinar@gmail.com>",
   "engines": {
     "node": ">=20"
   },
