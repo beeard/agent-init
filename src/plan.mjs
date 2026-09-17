@@ -397,6 +397,32 @@ function canonicalJson(value) {
 }
 
 /**
+ * Whether a repository is built by a bundler rather than run by Node.
+ *
+ * `moduleResolution: "bundler"` is the declaration TypeScript added for this,
+ * and it is the whole answer when a project has written it. The remaining
+ * signals cover a project whose config does not say it yet: a framework config
+ * or dependency means the same thing, and the report is more useful naming the
+ * framework than naming a resolution mode.
+ *
+ * This decides presentation only. The tool has no bundler stack profile, and
+ * this does not add one — it stops the recommendations that assume Node from
+ * being handed to a project that is not Node.
+ *
+ * @param targetDir - Absolute path to the target repository.
+ * @param actual - The existing `compilerOptions`, or `{}` when there is none.
+ * @param packageJson - The parsed `package.json`, or null.
+ * @returns True when a bundler builds this project.
+ */
+function bundlerBuild(targetDir, actual, packageJson) {
+  if (typeof actual.moduleResolution === 'string' && actual.moduleResolution.toLowerCase() === 'bundler') return true
+  const dependencies = { ...(packageJson?.dependencies ?? {}), ...(packageJson?.devDependencies ?? {}) }
+  if (['next', 'vite', 'nuxt', 'astro', '@sveltejs/kit', 'parcel', 'webpack', 'esbuild'].some(name => Object.hasOwn(dependencies, name))) return true
+  return ['next.config.js', 'next.config.mjs', 'next.config.ts', 'vite.config.js', 'vite.config.mjs', 'vite.config.ts', 'astro.config.mjs', 'svelte.config.js']
+    .some(name => existsSync(resolve(targetDir, name)))
+}
+
+/**
  * Compare an existing `tsconfig.json` against the layer's own config.
  *
  * An existing file is never merged or rewritten: it may carry comments that a
@@ -413,15 +439,18 @@ function typescriptConfigReport(targetDir, templatesRoot, stack) {
   if (!stack.includes('typescript')) return null
   const templatePath = join(templatesRoot, 'typescript', 'tsconfig.json')
   const path = resolve(targetDir, 'tsconfig.json')
-  const empty = { path, exists: existsSync(path), error: null, required: [], suggested: [], conflicts: [] }
+  const empty = { path, exists: existsSync(path), error: null, required: [], suggested: [], conflicts: [], bundler: false }
   if (!existsSync(templatePath) || !empty.exists) return empty
 
   let recommended
   let actual
+  let packageJson = null
   try {
     recommended = readJsonc(templatePath).compilerOptions ?? {}
     const file = readJsonc(path)
     actual = isPlainObject(file.compilerOptions) ? file.compilerOptions : {}
+    const manifest = resolve(targetDir, 'package.json')
+    packageJson = existsSync(manifest) ? readJson(manifest) : null
   } catch (error) {
     return { ...empty, error: error instanceof Error ? error.message : String(error) }
   }
@@ -439,5 +468,5 @@ function typescriptConfigReport(targetDir, templatesRoot, stack) {
       conflicts.push({ key, found: actual[key], recommended: value, required: demanded })
     }
   }
-  return { ...empty, required, suggested, conflicts }
+  return { ...empty, required, suggested, conflicts, bundler: bundlerBuild(targetDir, actual, packageJson) }
 }

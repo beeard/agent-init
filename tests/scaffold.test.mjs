@@ -693,6 +693,65 @@ test('keeps an existing tsconfig and reports what it does not set', () => {
   }
 })
 
+test('a bundler project is told to keep its module settings', () => {
+  const repo = makeSandbox()
+  try {
+    // create-next-app's shape. `moduleResolution: "bundler"` is what lets the
+    // extensionless relative imports a Next.js project writes resolve, and
+    // `NodeNext` requires `.js` on every one of them, so the recommendation
+    // would stop the project building.
+    const tsconfig = join(repo, 'tsconfig.json')
+    const source = `{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "jsx": "preserve"
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"]
+}
+`
+    writeFileSync(tsconfig, source, 'utf8')
+    writeFileSync(join(repo, 'package.json'), `${JSON.stringify({ name: 'app', dependencies: { next: '16.3.5' } }, null, 2)}\n`)
+
+    const result = runCli(['.', '--name', 'demo', '--stack', 'typescript', '--no-hooks'], repo)
+    assert.equal(result.code, 0, result.output)
+    assert.equal(readFileSync(tsconfig, 'utf8'), source, 'the framework config must not be rewritten')
+    assert.match(result.output, /a bundler builds this project/u)
+    assert.match(result.output, /leave the module settings to the framework/u)
+    // The report may still list what differs — it is a report — but it must not
+    // close by telling the reader to apply it, and it must not raise the ESM
+    // note for a project that resolves its own imports.
+    assert.doesNotMatch(result.output, /the TypeScript orders assume ESM/u)
+    assert.doesNotMatch(result.output, /Ask the user whether to apply the options above/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('a Node project still gets the ESM and module recommendations', () => {
+  const repo = makeSandbox()
+  try {
+    // The negative control: without a bundler the same options are gaps, and a
+    // fix that silenced them everywhere would pass the test above and fail this
+    // one.
+    writeFileSync(join(repo, 'tsconfig.json'), `${JSON.stringify({ compilerOptions: { target: 'ES2019', module: 'CommonJS' } }, null, 2)}\n`)
+    writeFileSync(join(repo, 'package.json'), `${JSON.stringify({ name: 'server', dependencies: {} }, null, 2)}\n`)
+
+    const result = runCli(['.', '--name', 'demo', '--stack', 'typescript', '--no-hooks'], repo)
+    assert.equal(result.code, 0, result.output)
+    assert.doesNotMatch(result.output, /a bundler builds this project/u)
+    assert.match(result.output, /"compilerOptions\.moduleResolution" is not set/u)
+    assert.match(result.output, /the TypeScript orders assume ESM/u)
+    assert.match(result.output, /Ask the user whether to apply the options above/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
 test('does not clobber its own typecheck script or a pinned compiler', () => {
   const repo = makeSandbox()
   try {

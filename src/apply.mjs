@@ -17,6 +17,19 @@ import { isPlainObject, readJson, toJson, writeText } from './util.mjs'
 const beginMarker = layer => `<!-- agent-init:begin ${layer} -->`
 const endMarker = layer => `<!-- agent-init:end ${layer} -->`
 
+/**
+ * What to say when a bundler builds the project.
+ *
+ * The template's module settings describe a program Node runs directly, and
+ * the standing orders read that way too. A bundler app is the other case, and
+ * the module settings above are then not gaps to close but choices the
+ * framework made: `moduleResolution: "bundler"` permits the extensionless
+ * relative imports a Next.js or Vite project writes, while `NodeNext` requires
+ * `.js` extensions on every one of them. Following the recommendation would
+ * stop the project building.
+ */
+const BUNDLER_NOTE = 'tsconfig.json: a bundler builds this project, so the module settings above are the framework\'s to choose. "NodeNext" and "type": "module" describe a Node program; apply the strictness options if they help, and leave the module and target values alone.'
+
 /** The pre-commit hook, kept to checks that stay fast on every commit. */
 const PRE_COMMIT = `#!/bin/sh
 # Fast pre-commit gate, installed by agent-init.
@@ -78,9 +91,10 @@ export function applyPlan(plan, { force = false, dryRun = false, hooks = true } 
   if (entry !== null) results.push(entry)
 
   if (plan.typescriptConfig !== null) reportTypescriptConfig(plan.typescriptConfig, notes)
-  if (plan.typescriptConfig !== null && plan.package.exists && plan.package.moduleType !== 'module') {
+  if (plan.typescriptConfig !== null && plan.package.exists && plan.package.moduleType !== 'module' && plan.typescriptConfig.bundler !== true) {
     // Node reads a `.ts` file as ESM only when the package says so, so the ESM
-    // standing orders cannot hold while this value does not.
+    // standing orders cannot hold while this value does not. A bundler resolves
+    // the imports itself, so for that project the value is not a gap.
     notes.push(`package.json "type" is ${plan.package.moduleType === null ? 'unset' : JSON.stringify(plan.package.moduleType)}; the TypeScript orders assume ESM. Set "type": "module", or name the files .mts. Left as is — ask the user.`)
   }
 
@@ -383,8 +397,14 @@ function reportTypescriptConfig(report, notes) {
   if (report.suggested.length > 0) {
     notes.push(`tsconfig.json: ${report.suggested.length} recommended option(s) are not set (${report.suggested.map(option => option.key).join(', ')}).`)
   }
+  if (report.bundler) notes.push(BUNDLER_NOTE)
   if (report.required.length > 0 || report.conflicts.length > 0 || report.suggested.length > 0) {
-    notes.push('tsconfig.json was left as it is, so its comments and values survive. Ask the user whether to apply the options above.')
+    // With a bundler present the closing line cannot say "apply the options
+    // above": the ones about the module system are the ones that must not be
+    // applied, and a summary that leaves that to the reader is the defect.
+    notes.push(report.bundler
+      ? 'tsconfig.json was left as it is. Apply the strictness options if the user wants them; leave the module settings to the framework.'
+      : 'tsconfig.json was left as it is, so its comments and values survive. Ask the user whether to apply the options above.')
   }
 }
 
