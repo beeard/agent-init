@@ -5,52 +5,43 @@
  * editor soft-wrapping. Fenced code, tables, and list structure keep their own
  * formatting. Frozen archived records are skipped.
  *
- * `--staged` checks only the Markdown files staged for commit. The pre-commit
- * hook uses it: the rule is the one most often broken by accident, so catching
- * it at the moment it is introduced is worth more than the whole-repository
- * scan, and the staged subset stays fast on a repository of any size.
+ * `--staged` checks the staged Markdown files within the configured corpus. The
+ * pre-commit hook uses it: the rule is the one most often broken by accident,
+ * so catching it at the moment it is introduced is worth more than the
+ * whole-repository scan, and the staged subset stays fast on a repository of
+ * any size while never judging a file the full run would not.
  */
 
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { spawnSync } from 'node:child_process'
 import { findWrappedParagraphs } from './lib/markdown.mjs'
-import { collectFiles, isMain, readConfig, skipPredicate } from './lib/repo-files.mjs'
+import { collectFiles, isMain, readConfig, skipPredicate, stagedSources, stagedSubset } from './lib/repo-files.mjs'
 
 const ROOT = resolve(import.meta.dirname, '..', '..')
 
 /**
- * List the Markdown files staged for commit.
- * @param root - Absolute repository root.
- * @returns Repository-relative paths, or null when Git cannot answer.
- */
-function stagedPaths(root) {
-  const result = spawnSync('git', [
-    '-C', root, 'diff', '--cached', '--name-only', '--diff-filter=ACMR', '-z', '--',
-  ], { encoding: 'buffer', maxBuffer: 64 * 1024 * 1024 })
-  if (result.status !== 0) return null
-  return result.stdout.toString('utf8').split('\0').filter(Boolean)
-}
-
-/**
  * Resolve which documents to inspect.
+ *
+ * A staged run is the whole-repository corpus intersected with the staged
+ * paths, never the staged paths alone: a file the suite does not judge must not
+ * fail a commit.
+ *
  * @param root - Absolute repository root.
  * @param stagedOnly - Whether to restrict the run to staged files.
- * @returns Absolute paths plus the repository-relative path used in messages.
+ * @returns Matched files with both their matched and canonical relative paths.
  */
 function selectFiles(root, stagedOnly) {
   const config = readConfig(resolve(root, 'scripts', 'gates', 'config.json'))
   const skip = skipPredicate(root, config.skipGlobs ?? [])
-  if (!stagedOnly) return collectFiles(root, config.markdownGlobs, skip)
+  const corpus = collectFiles(root, config.markdownGlobs, skip)
+  if (!stagedOnly) return corpus
 
-  const staged = stagedPaths(root)
+  const staged = stagedSources(root)
   if (staged === null) {
     console.error('verify-md-wrap: --staged needs a Git worktree; falling back to the whole repository')
-    return collectFiles(root, config.markdownGlobs, skip)
+    return corpus
   }
-  return staged
-    .filter(relPath => relPath.endsWith('.md') && !skip(relPath))
-    .map(relPath => ({ abs: resolve(root, relPath), relPath, realPath: relPath }))
+  return stagedSubset(corpus, staged)
 }
 
 /**

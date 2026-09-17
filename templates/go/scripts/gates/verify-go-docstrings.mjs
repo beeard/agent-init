@@ -26,7 +26,7 @@
 import { readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
-import { collectFiles, isMain, readConfig } from './lib/repo-files.mjs'
+import { collectFiles, isMain, readConfig, stagedSources, stagedSubset } from './lib/repo-files.mjs'
 
 const ROOT = resolve(import.meta.dirname, '..', '..')
 
@@ -43,20 +43,13 @@ function toolchain() {
 }
 
 /**
- * List the Go files staged for commit.
- * @param root - Absolute repository root.
- * @returns Staged paths, or null when Git cannot answer.
- */
-function stagedSources(root) {
-  const result = spawnSync('git', [
-    '-C', root, 'diff', '--cached', '--name-only', '--diff-filter=ACMR', '-z', '--',
-  ], { encoding: 'buffer', maxBuffer: 64 * 1024 * 1024 })
-  if (result.status !== 0) return null
-  return result.stdout.toString('utf8').split('\0').filter(path => path.endsWith('.go'))
-}
-
-/**
  * Resolve which files to analyze.
+ *
+ * A staged run is the whole-repository corpus intersected with the staged
+ * paths, never the staged paths alone: a file the suite does not judge must not
+ * fail a commit. The package-comment question is still answered from the whole
+ * directory, because `go-docstrings.go` reads sibling files itself.
+ *
  * @param root - Absolute repository root.
  * @param stagedOnly - Whether to restrict the run to staged files.
  * @returns Absolute paths plus the repository-relative path used in messages.
@@ -66,17 +59,17 @@ function selectFiles(root, stagedOnly) {
   const globs = config.goGlobs ?? ['**/*.go']
   const excluded = new Set(config.goSkipDirectories ?? [])
   const isSkipped = relPath => relPath.split('/').some(segment => excluded.has(segment))
-  const fromRepository = () =>
-    collectFiles(root, globs, isSkipped).map(file => ({ abs: file.abs, relPath: file.realPath ?? file.relPath }))
+  const corpus = collectFiles(root, globs, isSkipped)
+  const entry = file => ({ abs: file.abs, relPath: file.realPath ?? file.relPath })
 
-  if (!stagedOnly) return fromRepository()
+  if (!stagedOnly) return corpus.map(entry)
 
   const staged = stagedSources(root)
   if (staged === null) {
     console.error('verify-go-docstrings: --staged needs a Git worktree; falling back to the whole repository')
-    return fromRepository()
+    return corpus.map(entry)
   }
-  return staged.filter(relPath => !isSkipped(relPath)).map(relPath => ({ abs: resolve(root, relPath), relPath }))
+  return stagedSubset(corpus, staged).map(entry)
 }
 
 /**

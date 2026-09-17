@@ -47,6 +47,93 @@ export function readJson(path) {
 }
 
 /**
+ * Strip the comments and trailing commas a JSON-with-comments file may carry.
+ *
+ * `tsconfig.json` is JSONC by specification, and a real one routinely holds
+ * both. `JSON.parse` rejects that input, so the scanner removes the two forms
+ * while copying string literals verbatim — a `//` or a comma inside a string is
+ * content, not syntax.
+ *
+ * @param input - JSONC source.
+ * @returns The equivalent strict JSON.
+ */
+export function stripJsonComments(input) {
+  const out = []
+  const length = input.length
+  let index = 0
+
+  /** Index just past the next run of whitespace and comments. */
+  const skipTrivia = (from) => {
+    let at = from
+    for (;;) {
+      while (at < length && /\s/u.test(input[at])) at += 1
+      if (input[at] === '/' && input[at + 1] === '/') {
+        while (at < length && input[at] !== '\n') at += 1
+        continue
+      }
+      if (input[at] === '/' && input[at + 1] === '*') {
+        at += 2
+        while (at < length && !(input[at] === '*' && input[at + 1] === '/')) at += 1
+        at += 2
+        continue
+      }
+      return at
+    }
+  }
+
+  while (index < length) {
+    const character = input[index]
+    if (character === '"') {
+      out.push(character)
+      index += 1
+      while (index < length) {
+        const inner = input[index]
+        out.push(inner)
+        index += 1
+        if (inner === '\\') {
+          if (index < length) {
+            out.push(input[index])
+            index += 1
+          }
+          continue
+        }
+        if (inner === '"') break
+      }
+      continue
+    }
+    if (character === '/' && input[index + 1] === '/') {
+      while (index < length && input[index] !== '\n') index += 1
+      continue
+    }
+    if (character === '/' && input[index + 1] === '*') {
+      index += 2
+      while (index < length && !(input[index] === '*' && input[index + 1] === '/')) index += 1
+      index += 2
+      continue
+    }
+    if (character === ',') {
+      const next = skipTrivia(index + 1)
+      if (input[next] === '}' || input[next] === ']') {
+        index += 1
+        continue
+      }
+    }
+    out.push(character)
+    index += 1
+  }
+  return out.join('')
+}
+
+/**
+ * Read and parse a JSON-with-comments file.
+ * @param path - Absolute file path.
+ * @returns The parsed value.
+ */
+export function readJsonc(path) {
+  return JSON.parse(stripJsonComments(readFileSync(path, 'utf8')))
+}
+
+/**
  * Serialize a value as pretty JSON with a trailing newline.
  * @param value - Any JSON-serializable value.
  * @returns Two-space-indented JSON ending in exactly one newline.

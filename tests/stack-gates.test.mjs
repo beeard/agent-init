@@ -9,7 +9,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { removeSandbox, runGate, scaffold, PACKAGE_ROOT } from './helpers.mjs'
 
@@ -67,6 +67,12 @@ test('go: the analysis program stays out of the module build', { skip: !HAS_GO &
       const result = spawnSync('go', args, { cwd: repo, encoding: 'utf8' })
       assert.equal(result.status, 0, `go ${args.join(' ')} failed: ${result.stderr}`)
     }
+    // The build tag is what keeps the analysis program out of the module. Both
+    // commands above exit 0 whether or not it is present, so `go list` is the
+    // only one that shows the package appearing.
+    const list = spawnSync('go', ['list', './...'], { cwd: repo, encoding: 'utf8' })
+    assert.equal(list.status, 0, list.stderr)
+    assert.doesNotMatch(list.stdout, /scripts\/gates/u)
   } finally {
     removeSandbox(repo)
   }
@@ -141,19 +147,34 @@ test('typescript: a missing compiler fails loud with the install command', () =>
 })
 
 test('every stack layer registers its gate without replacing the base inventory', () => {
+  // The groups are the README's table: rust compiles a crate and the typecheck
+  // reads the whole program, so both stay out of the commit hook, while the
+  // rest run on every commit.
+  const expectedGates = {
+    go: { 'verify-go-docstrings.mjs': ['commit', 'full'] },
+    python: { 'verify-python-docstrings.mjs': ['commit', 'full'] },
+    rust: { 'verify-rust-doc-comments.mjs': ['full'] },
+    typescript: {
+      'verify-typescript-doc-comments.mjs': ['commit', 'full'],
+      'verify-typescript-types.mjs': ['full'],
+    },
+  }
   // Derived from the base manifest rather than a copied list, so adding a base
   // gate does not require editing this test.
   const baseGates = Object.keys(JSON.parse(
     readFileSync(join(PACKAGE_ROOT, 'templates', 'base', 'scripts', 'gates', 'gates.json'), 'utf8'),
   ))
-  for (const stack of ['go', 'rust', 'typescript']) {
+  for (const stack of Object.keys(expectedGates)) {
     const repo = scaffold(['--name', 'demo', '--stack', stack, '--no-hooks'])
     try {
       const gates = JSON.parse(readFileSync(join(repo, 'scripts', 'gates', 'gates.json'), 'utf8'))
       for (const name of baseGates) assert.ok(Object.hasOwn(gates, name), `${stack} dropped the base gate ${name}`)
-      const added = Object.keys(gates).filter(name => !baseGates.includes(name))
-      assert.equal(added.length, 1, `${stack} should register exactly one gate, got ${added.join(', ')}`)
-      assert.equal(gates[added[0]].advisory, true, `${stack}'s gate must ship advisory`)
+      const added = Object.keys(gates).filter(name => !baseGates.includes(name)).sort()
+      assert.deepEqual(added, Object.keys(expectedGates[stack]).sort(), `${stack} registered the wrong gates`)
+      for (const [name, groups] of Object.entries(expectedGates[stack])) {
+        assert.equal(gates[name].advisory, true, `${name} must ship advisory`)
+        assert.deepEqual(gates[name].groups, groups, `${name} is in the wrong groups`)
+      }
     } finally {
       removeSandbox(repo)
     }
@@ -171,6 +192,82 @@ test('rust: a file the crate does not declare is not reported', { skip: !HAS_CAR
     // gate takes is that the compiler decides what the crate contains.
     write(repo, 'src/orphan.rs', 'pub fn orphan() {}\n')
     assert.equal(runGate(repo, 'verify-rust-doc-comments.mjs').code, 0)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+/**
+ * Write a stub `typescript` package into a repository.
+ *
+ * The gate must be tested without making this package depend on TypeScript, so
+ * the stub answers the two questions the gate asks: where the CLI is, and what
+ * exit code it produced.
+ *
+ * @param repo - Absolute repository path.
+ */
+function stubCompiler(repo) {
+  const dir = join(repo, 'node_modules', 'typescript')
+  mkdirSync(join(dir, 'lib'), { recursive: true })
+  writeFileSync(join(dir, 'package.json'), '{"name":"typescript","version":"0.0.0","main":"lib/typescript.js"}\n', 'utf8')
+  writeFileSync(join(dir, 'lib', 'typescript.js'), 'module.exports = {}\n', 'utf8')
+  writeFileSync(join(dir, 'lib', 'tsc.js'),
+    'if (process.env.FAKE_TSC_EXIT) { console.error("src/index.ts(1,14): error TS2322: stub"); process.exit(1) }\nprocess.exit(0)\n',
+    'utf8')
+}
+
+test('typescript: no TypeScript file means nothing to type-check', () => {
+  const repo = scaffold(['--name', 'demo', '--stack', 'typescript', '--no-hooks'])
+  try {
+    const result = runGate(repo, 'verify-typescript-types.mjs')
+    assert.equal(result.code, 0, result.output)
+    assert.match(result.output, /0 file\(s\) checked/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('typescript: the typecheck gate fails loud without a tsconfig', () => {
+  const repo = scaffold(['--name', 'demo', '--stack', 'typescript', '--no-hooks'])
+  try {
+    write(repo, 'src/index.ts', 'export const x: number = 1\n')
+    unlinkSync(join(repo, 'tsconfig.json'))
+    const result = runGate(repo, 'verify-typescript-types.mjs')
+    assert.equal(result.code, 1)
+    assert.match(result.output, /no tsconfig\.json/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('typescript: the typecheck gate fails loud without the compiler', () => {
+  const repo = scaffold(['--name', 'demo', '--stack', 'typescript', '--no-hooks'])
+  try {
+    write(repo, 'src/index.ts', 'export const x: number = 1\n')
+    const result = runGate(repo, 'verify-typescript-types.mjs')
+    assert.equal(result.code, 1)
+    assert.match(result.output, /cannot load the TypeScript compiler/u)
+    assert.match(result.output, /npm install --save-dev typescript/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('typescript: the typecheck gate reports the compiler it spawns', () => {
+  const repo = scaffold(['--name', 'demo', '--stack', 'typescript', '--no-hooks'])
+  try {
+    write(repo, 'src/index.ts', 'export const x: number = 1\n')
+    stubCompiler(repo)
+    const passed = runGate(repo, 'verify-typescript-types.mjs')
+    assert.equal(passed.code, 0, passed.output)
+
+    const failed = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-typescript-types.mjs')], {
+      cwd: repo,
+      encoding: 'utf8',
+      env: { ...process.env, FAKE_TSC_EXIT: '1' },
+    })
+    assert.equal(failed.status, 1)
+    assert.match(`${failed.stdout}${failed.stderr}`, /error TS2322/u)
   } finally {
     removeSandbox(repo)
   }

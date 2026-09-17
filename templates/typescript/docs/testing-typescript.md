@@ -20,6 +20,8 @@ Build output and dependency directories are already excluded by the gate configu
 
 Use the runner the project declares in `package.json`. Select the smallest set that covers the change: one file while iterating, the owning module's tests plus each consumer's when a shared contract changes.
 
+Type checking is its own evidence: `npm run typecheck` runs `tsc --noEmit` over the project, and the `verify-typescript-types` gate runs the same command in the suite. A red type check is not a test to re-run; it is a change to finish.
+
 Do not run the whole suite to be safe. A suite nobody trusts to be fast is a suite that gets skipped, and a skipped suite enforces nothing.
 
 ## What a test must own

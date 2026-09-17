@@ -29,6 +29,10 @@ function registeredGates(group) {
   return Object.values(manifest).filter(entry => entry.groups.includes(group)).length
 }
 
+/** Whether an interpreter the python gate would find is on `PATH`. */
+const HAS_PYTHON = ['python3', 'python'].some(candidate =>
+  spawnSync(candidate, ['-c', 'import ast'], { encoding: 'utf8' }).status === 0)
+
 /** A well-formed implemented record, used as the baseline every mutation breaks. */
 const GOOD_RECORD = `# Decision Record: A settled question
 
@@ -82,7 +86,7 @@ test('a freshly scaffolded repository passes every gate', () => {
   withRepo({ args: ['--with-architecture'] }, (repo) => {
     const result = runSuite(repo)
     assert.equal(result.code, 0, result.output)
-    assert.match(result.output, new RegExp(`${registeredGates('full')} gate\\(s\\) passed`, 'u'))
+    assert.match(result.output, new RegExp(`\\b${registeredGates('full')} gate\\(s\\) passed`, 'u'))
   })
 })
 
@@ -90,7 +94,7 @@ test('the commit group runs a strict subset', () => {
   withRepo({}, (repo) => {
     const result = runSuite(repo, 'commit')
     assert.equal(result.code, 0, result.output)
-    assert.match(result.output, new RegExp(`${registeredGates('commit')} gate\\(s\\) passed`, 'u'))
+    assert.match(result.output, new RegExp(`\\b${registeredGates('commit')} gate\\(s\\) passed`, 'u'))
     assert.ok(registeredGates('commit') < registeredGates('full'), 'the commit group must not be the whole suite')
     assert.doesNotMatch(result.output, /verify-doc-budgets/u)
   })
@@ -348,7 +352,7 @@ test('the python stack adds its gate, config, and testing guide', () => {
   }
 })
 
-test('a documented python module passes the docstring gate', () => {
+test('a documented python module passes the docstring gate', { skip: !HAS_PYTHON && 'python is not installed' }, () => {
   const repo = scaffoldPython()
   try {
     writePython(repo, 'pkg/good.py', GOOD_PYTHON)
@@ -359,7 +363,7 @@ test('a documented python module passes the docstring gate', () => {
   }
 })
 
-test('an undocumented module, class, function, and method are each reported', () => {
+test('an undocumented module, class, function, and method are each reported', { skip: !HAS_PYTHON && 'python is not installed' }, () => {
   const repo = scaffoldPython()
   try {
     writePython(repo, 'pkg/bare.py', 'def top():\n    pass\n\n\nclass Bare:\n    def method(self):\n        pass\n')
@@ -374,7 +378,7 @@ test('an undocumented module, class, function, and method are each reported', ()
   }
 })
 
-test('a leading underscore makes a definition private', () => {
+test('a leading underscore makes a definition private', { skip: !HAS_PYTHON && 'python is not installed' }, () => {
   const repo = scaffoldPython()
   try {
     writePython(repo, 'pkg/private.py', '"""Doc."""\n\n\ndef _hidden():\n    pass\n\n\nclass _AlsoHidden:\n    pass\n')
@@ -384,7 +388,7 @@ test('a leading underscore makes a definition private', () => {
   }
 })
 
-test('an overload stub without a docstring is exempt', () => {
+test('an overload stub without a docstring is exempt', { skip: !HAS_PYTHON && 'python is not installed' }, () => {
   const repo = scaffoldPython()
   try {
     writePython(repo, 'pkg/over.py',
@@ -395,7 +399,7 @@ test('an overload stub without a docstring is exempt', () => {
   }
 })
 
-test('a syntax error is reported rather than crashing the gate', () => {
+test('a syntax error is reported rather than crashing the gate', { skip: !HAS_PYTHON && 'python is not installed' }, () => {
   const repo = scaffoldPython()
   try {
     writePython(repo, 'pkg/broken.py', 'def (:\n')
@@ -407,7 +411,7 @@ test('a syntax error is reported rather than crashing the gate', () => {
   }
 })
 
-test('virtualenv and cache directories are not scanned', () => {
+test('virtualenv and cache directories are not scanned', { skip: !HAS_PYTHON && 'python is not installed' }, () => {
   const repo = scaffoldPython()
   try {
     for (const dir of ['venv', '__pycache__', 'build', 'site-packages']) {
@@ -694,4 +698,56 @@ test('a contribution entry that is not a positive integer is rejected', () => {
     assert.equal(result.code, 1)
     assert.match(result.output, /contribution "base" must be a positive integer/u)
   })
+})
+
+test('--staged judges only the files the whole-repository run judges', () => {
+  withRepo({}, (repo) => {
+    // `notes/` is outside `markdownGlobs`, so the suite never reads this file.
+    // Reading it in the hook anyway would fail a commit over a paragraph no
+    // gate was pointed at, with no remedy but amending a file no gate owns.
+    mkdirSync(join(repo, 'notes'), { recursive: true })
+    writeFileSync(join(repo, 'notes', 'loose.md'), 'A paragraph that is\nhard wrapped across lines.\n', 'utf8')
+    assert.equal(spawnSync('git', ['-C', repo, 'add', 'notes/loose.md'], { encoding: 'utf8' }).status, 0)
+    const staged = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-md-wrap.mjs'), '--staged'],
+      { cwd: repo, encoding: 'utf8' })
+    assert.equal(staged.status, 0, staged.stdout + staged.stderr)
+    assert.equal(runSuite(repo, 'commit').code, 0)
+  })
+})
+
+test('--staged still rejects a hard-wrapped file inside the corpus', () => {
+  withRepo({}, (repo) => {
+    writeFileSync(join(repo, 'docs', 'wrapped.md'), 'A paragraph that is\nhard wrapped across lines.\n', 'utf8')
+    assert.equal(spawnSync('git', ['-C', repo, 'add', 'docs/wrapped.md'], { encoding: 'utf8' }).status, 0)
+    const staged = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-md-wrap.mjs'), '--staged'],
+      { cwd: repo, encoding: 'utf8' })
+    assert.equal(staged.status, 1)
+    assert.match(staged.stderr, /docs\/wrapped\.md:2/u)
+  })
+})
+
+test('the python gate bounds a staged run to its configured corpus', { skip: !HAS_PYTHON && 'python is not installed' }, () => {
+  const repo = scaffoldPython()
+  try {
+    const configPath = join(repo, 'scripts', 'gates', 'config.json')
+    const config = JSON.parse(readFileSync(configPath, 'utf8'))
+    config.pythonGlobs = ['src/**/*.py']
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8')
+    writePython(repo, 'other/bare.py', 'def bare():\n    return 1\n')
+    assert.equal(spawnSync('git', ['-C', repo, 'add', 'other/bare.py', 'scripts/gates/config.json'], { encoding: 'utf8' }).status, 0)
+    const staged = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-python-docstrings.mjs'), '--staged'],
+      { cwd: repo, encoding: 'utf8' })
+    assert.equal(staged.status, 0, staged.stdout + staged.stderr)
+    assert.match(staged.stdout, /0 file\(s\) checked/u)
+
+    // An in-corpus file is still judged, so the bound is not a blanket skip.
+    writePython(repo, 'src/bare.py', 'def bare():\n    return 1\n')
+    assert.equal(spawnSync('git', ['-C', repo, 'add', 'src/bare.py'], { encoding: 'utf8' }).status, 0)
+    const caught = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-python-docstrings.mjs'), '--staged'],
+      { cwd: repo, encoding: 'utf8' })
+    assert.equal(caught.status, 1)
+    assert.match(caught.stderr, /src\/bare\.py/u)
+  } finally {
+    removeSandbox(repo)
+  }
 })

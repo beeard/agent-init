@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, unlinkSync, writeFileSync, chmodSync } from 'node:fs'
 import { dirname, join, sep } from 'node:path'
 import { STACKS, buildPlan } from '../src/plan.mjs'
 import { collectFiles, skipPredicate } from '../templates/base/scripts/gates/lib/repo-files.mjs'
@@ -393,6 +393,130 @@ test('installs an executable pre-commit hook', () => {
   }
 })
 
+test('keeps a pre-commit hook the repository already had', () => {
+  const repo = makeSandbox()
+  try {
+    const hook = join(repo, '.githooks', 'pre-commit')
+    mkdirSync(dirname(hook), { recursive: true })
+    writeFileSync(hook, '#!/bin/sh\necho mine >&2\n', 'utf8')
+    chmodSync(hook, 0o755)
+    const result = runCli(['.', '--name', 'demo'], repo)
+    assert.equal(result.code, 0, result.output)
+    assert.match(result.output, /kept\s+\.githooks\/pre-commit/u)
+    assert.match(result.output, /already exists and was kept/u)
+    assert.equal(readFileSync(hook, 'utf8'), '#!/bin/sh\necho mine >&2\n')
+    // The gates are not wired into someone else's hook, so the path is not
+    // claimed either.
+    const local = spawnSync('git', ['-C', repo, 'config', '--local', '--get', 'core.hooksPath'], { encoding: 'utf8' })
+    assert.equal(local.stdout.trim(), '')
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('--force replaces a hook the repository already had', () => {
+  const repo = makeSandbox()
+  try {
+    const hook = join(repo, '.githooks', 'pre-commit')
+    mkdirSync(dirname(hook), { recursive: true })
+    writeFileSync(hook, '#!/bin/sh\necho mine >&2\n', 'utf8')
+    chmodSync(hook, 0o755)
+    const result = runCli(['.', '--name', 'demo', '--force'], repo)
+    assert.equal(result.code, 0, result.output)
+    assert.match(readFileSync(hook, 'utf8'), /scripts\/gates\/run\.mjs --group commit/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('re-running leaves the hook it already wrote alone', () => {
+  const repo = scaffold()
+  try {
+    const hook = join(repo, '.githooks', 'pre-commit')
+    const before = statSync(hook).mtimeMs
+    const again = runCli(['.', '--name', 'demo'], repo)
+    assert.equal(again.code, 0, again.output)
+    assert.match(again.output, /kept\s+\.githooks\/pre-commit/u)
+    assert.equal(statSync(hook).mtimeMs, before, 'an identical re-run must not rewrite the hook')
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('does not point core.hooksPath over an existing $GIT_DIR hook', () => {
+  const repo = makeSandbox()
+  // A global core.hooksPath would decide this branch instead, so it is emptied.
+  const emptyConfig = join(repo, 'no-global-config')
+  writeFileSync(emptyConfig, '', 'utf8')
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: emptyConfig, GIT_CONFIG_NOSYSTEM: '1' }
+  try {
+    const gitHook = join(repo, '.git', 'hooks', 'pre-commit')
+    writeFileSync(gitHook, '#!/bin/sh\necho old >&2\n', 'utf8')
+    chmodSync(gitHook, 0o755)
+    const result = spawnSync(process.execPath, [join(PACKAGE_ROOT, 'src', 'cli.mjs'), '.', '--name', 'demo'], {
+      cwd: repo,
+      encoding: 'utf8',
+      env,
+    })
+    assert.equal(result.status, 0, `${result.stdout}${result.stderr}`)
+    assert.match(`${result.stdout}${result.stderr}`, /not activated/u)
+    // Git reads `core.hooksPath` or `$GIT_DIR/hooks`, never both, so the
+    // existing hook is left reachable rather than silently replaced.
+    const local = key => spawnSync('git', ['-C', repo, 'config', '--local', '--get', key], { encoding: 'utf8', env }).stdout.trim()
+    assert.equal(local('core.hooksPath'), '')
+    assert.equal(local('agent-init.githooks'), 'true')
+    assert.ok(existsSync(gitHook))
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('a global core.hooksPath is left in place rather than overridden locally', () => {
+  const repo = makeSandbox()
+  const globalConfig = join(repo, 'global-gitconfig')
+  writeFileSync(globalConfig, `[core]\n\thooksPath = ${join(repo, 'global-hooks')}\n`, 'utf8')
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: globalConfig, GIT_CONFIG_NOSYSTEM: '1' }
+  try {
+    const result = spawnSync(process.execPath, [join(PACKAGE_ROOT, 'src', 'cli.mjs'), '.', '--name', 'demo'], {
+      cwd: repo,
+      encoding: 'utf8',
+      env,
+    })
+    assert.equal(result.status, 0, `${result.stdout}${result.stderr}`)
+    assert.match(`${result.stdout}${result.stderr}`, /core\.hooksPath is already/u)
+    const local = key => spawnSync('git', ['-C', repo, 'config', '--local', '--get', key], { encoding: 'utf8', env }).stdout.trim()
+    assert.equal(local('core.hooksPath'), '', 'a local value would hide the global hooks')
+    assert.equal(local('agent-init.githooks'), 'true')
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('refuses a skill name that matches no template', () => {
+  assert.throws(
+    () => buildPlan({
+      targetDir: PACKAGE_ROOT,
+      templatesRoot: join(PACKAGE_ROOT, 'templates'),
+      projectName: 'demo',
+      skills: ['not-a-skill'],
+      stack: [],
+      architecture: false,
+    }),
+    /unknown skill\(s\): not-a-skill/u,
+  )
+})
+
+test('refuses an empty --skills value', () => {
+  const repo = makeSandbox()
+  try {
+    const result = runCli(['.', '--skills', ''], repo)
+    assert.equal(result.code, 2)
+    assert.match(result.output, /no skills selected/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
 test('the architecture layer adds the glossary and composition rules', () => {
   const repo = scaffold(['--with-architecture'])
   try {
@@ -427,6 +551,161 @@ test('adds gate scripts to an existing package.json without clobbering', () => {
     const pkg = JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8'))
     assert.equal(pkg.scripts['check:agents'], 'echo mine')
     assert.equal(pkg.scripts['change-scope'], 'node scripts/gates/change-scope.mjs')
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('creates a TypeScript config and manifest for a new project', () => {
+  const repo = scaffold(['--name', 'demo', '--stack', 'typescript', '--no-hooks'])
+  try {
+    const tsconfig = JSON.parse(readFileSync(join(repo, 'tsconfig.json'), 'utf8'))
+    assert.equal(tsconfig.compilerOptions.strict, true)
+    assert.equal(tsconfig.compilerOptions.module, 'NodeNext')
+
+    const pkg = JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8'))
+    assert.equal(pkg.type, 'module')
+    assert.equal(pkg.scripts.typecheck, 'tsc --noEmit')
+    assert.ok(pkg.devDependencies.typescript, 'the compiler must be declared, not assumed')
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('reports the install command when it declares the compiler', () => {
+  const repo = makeSandbox()
+  try {
+    const result = runCli(['.', '--name', 'demo', '--stack', 'typescript', '--no-hooks'], repo)
+    assert.equal(result.code, 0, result.output)
+    assert.match(result.output, /npm install/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('a non-TypeScript scaffold creates no package.json', () => {
+  const repo = scaffold(['--no-hooks'])
+  try {
+    assert.ok(!existsSync(join(repo, 'package.json')), 'the base layer has no manifest to justify')
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('a TypeScript dry run writes neither the config nor the manifest', () => {
+  const repo = makeSandbox()
+  try {
+    const result = runCli(['.', '--name', 'demo', '--stack', 'typescript', '--dry-run'], repo)
+    assert.equal(result.code, 0, result.output)
+    assert.ok(!existsSync(join(repo, 'tsconfig.json')))
+    assert.ok(!existsSync(join(repo, 'package.json')))
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('keeps an existing tsconfig and reports what it does not set', () => {
+  const repo = makeSandbox()
+  try {
+    const tsconfig = join(repo, 'tsconfig.json')
+    // JSONC, because that is what tsconfig is: the comments must survive a run
+    // that only reads the file.
+    const source = `{
+  // chosen for the old runtime
+  "compilerOptions": {
+    "target": "ES2019",
+    "strict": true,
+    "module": "CommonJS"
+  }
+}
+`
+    writeFileSync(tsconfig, source, 'utf8')
+    const result = runCli(['.', '--name', 'demo', '--stack', 'typescript', '--no-hooks'], repo)
+    assert.equal(result.code, 0, result.output)
+    assert.equal(readFileSync(tsconfig, 'utf8'), source, 'the existing config must not be rewritten')
+    assert.match(result.output, /"compilerOptions\.moduleResolution" is not set/u)
+    assert.match(result.output, /"compilerOptions\.target" is "ES2019"/u)
+    assert.match(result.output, /left as it is/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('does not clobber its own typecheck script or a pinned compiler', () => {
+  const repo = makeSandbox()
+  try {
+    writeFileSync(join(repo, 'package.json'), `${JSON.stringify({
+      name: 'demo',
+      scripts: { typecheck: 'tsc -p tsconfig.build.json' },
+      devDependencies: { typescript: '^4.9.5' },
+    }, null, 2)}\n`, 'utf8')
+    assert.equal(runCli(['.', '--name', 'demo', '--stack', 'typescript', '--no-hooks'], repo).code, 0)
+    const pkg = JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8'))
+    assert.equal(pkg.scripts.typecheck, 'tsc -p tsconfig.build.json')
+    assert.equal(pkg.devDependencies.typescript, '^4.9.5')
+    assert.equal(pkg.scripts['check:agents'], 'node scripts/gates/run.mjs')
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('reports a package type that is not ESM without changing it', () => {
+  const repo = makeSandbox()
+  try {
+    writeFileSync(join(repo, 'package.json'), `${JSON.stringify({ name: 'demo', type: 'commonjs' }, null, 2)}\n`, 'utf8')
+    const result = runCli(['.', '--name', 'demo', '--stack', 'typescript', '--no-hooks'], repo)
+    assert.equal(result.code, 0, result.output)
+    assert.match(result.output, /package\.json "type" is "commonjs"/u)
+    assert.equal(JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8')).type, 'commonjs')
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('composes the base orders into an AGENTS.md the repository already had', () => {
+  const repo = makeSandbox()
+  try {
+    const own = '# Our own orders\n\nKeep it short.\n'
+    writeFileSync(join(repo, 'AGENTS.md'), own, 'utf8')
+    const result = runCli(['.', '--name', 'demo', '--stack', 'typescript', '--no-hooks'], repo)
+    assert.equal(result.code, 0, result.output)
+    assert.match(result.output, /composed\s+AGENTS\.md/u)
+    const agents = readFileSync(join(repo, 'AGENTS.md'), 'utf8')
+    // The repository's own file survives, and the base orders it did not have
+    // arrive as a marked section rather than replacing it.
+    assert.ok(agents.startsWith(own), 'the existing document must be preserved verbatim')
+    assert.match(agents, /<!-- agent-init:begin base -->/u)
+    assert.match(agents, /Read before you change/u)
+    assert.match(agents, /<!-- agent-init:begin typescript -->/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('keeps a composed AGENTS.md, and an edit to it, on every later run', () => {
+  const repo = makeSandbox()
+  try {
+    writeFileSync(join(repo, 'AGENTS.md'), '# Our own orders\n', 'utf8')
+    assert.equal(runCli(['.', '--name', 'demo', '--no-hooks'], repo).code, 0)
+    // A hand edit after adoption must not trigger a second base section.
+    writeFileSync(join(repo, 'AGENTS.md'), `${readFileSync(join(repo, 'AGENTS.md'), 'utf8')}\nEdited by hand.\n`, 'utf8')
+    const again = runCli(['.', '--name', 'demo', '--no-hooks'], repo)
+    assert.equal(again.code, 0, again.output)
+    assert.match(again.output, /kept\s+AGENTS\.md/u)
+    const agents = readFileSync(join(repo, 'AGENTS.md'), 'utf8')
+    assert.match(agents, /Edited by hand\./u)
+    assert.equal(agents.match(/agent-init:begin base/gu)?.length, 1, 'the base section must appear once')
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('a fresh repository gets the base orders without markers', () => {
+  const repo = scaffold(['--no-hooks'])
+  try {
+    const agents = readFileSync(join(repo, 'AGENTS.md'), 'utf8')
+    assert.match(agents, /Read before you change/u)
+    assert.doesNotMatch(agents, /agent-init:begin base/u, 'a written file is not wrapped')
   } finally {
     removeSandbox(repo)
   }

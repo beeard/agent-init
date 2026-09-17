@@ -16,6 +16,26 @@ import { join } from 'node:path'
 import { PACKAGE_ROOT, makeSandbox, removeSandbox } from './helpers.mjs'
 
 /**
+ * The environment that keeps every Git read and write inside the sandbox.
+ *
+ * `HOME` and `XDG_CONFIG_HOME` are not enough: `GIT_CONFIG_GLOBAL` takes
+ * precedence over both when it is set in the developer's environment, so a run
+ * without it would read and write the real global configuration.
+ *
+ * @param home - Absolute sandbox path.
+ * @returns Environment variables for a sandboxed Git invocation.
+ */
+function sandboxEnv(home) {
+  return {
+    ...process.env,
+    HOME: home,
+    XDG_CONFIG_HOME: join(home, '.config'),
+    GIT_CONFIG_GLOBAL: join(home, '.gitconfig'),
+    GIT_CONFIG_NOSYSTEM: '1',
+  }
+}
+
+/**
  * Run the installer against a sandbox home.
  * @param home - Absolute sandbox path used as `$HOME` and `$XDG_CONFIG_HOME`.
  * @param args - Arguments after the script path.
@@ -25,7 +45,7 @@ function install(home, args = []) {
   const result = spawnSync(
     process.execPath,
     [join(PACKAGE_ROOT, 'scripts', 'install-local.mjs'), ...args],
-    { encoding: 'utf8', env: { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, '.config') } },
+    { encoding: 'utf8', env: sandboxEnv(home) },
   )
   return { code: result.status ?? 1, output: `${result.stdout}${result.stderr}` }
 }
@@ -39,7 +59,7 @@ function makeHome() {
   mkdirSync(join(home, '.config', 'git', 'hooks'), { recursive: true })
   mkdirSync(join(home, '.claude', 'skills'), { recursive: true })
   spawnSync('git', ['config', '--global', 'core.hooksPath', join(home, '.config', 'git', 'hooks')], {
-    env: { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, '.config') },
+    env: sandboxEnv(home),
   })
   return home
 }
@@ -53,7 +73,7 @@ function makeHome() {
 function globalValue(home, key) {
   const result = spawnSync('git', ['config', '--global', '--get', key], {
     encoding: 'utf8',
-    env: { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, '.config') },
+    env: sandboxEnv(home),
   })
   return (result.stdout ?? '').trim()
 }
@@ -190,7 +210,7 @@ test('a hooks path written with a tilde is expanded, not skipped', () => {
   const home = makeSandbox()
   try {
     spawnSync('git', ['config', '--global', 'core.hooksPath', '~/git-hooks'], {
-      env: { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, '.config') },
+      env: sandboxEnv(home),
     })
     // `git config --get` returns `~/git-hooks` verbatim, which is not absolute
     // and would make the installer skip the chain in exactly the case it exists
@@ -208,7 +228,7 @@ test('a relative hooks path is skipped rather than guessed at', () => {
   const home = makeSandbox()
   try {
     spawnSync('git', ['config', '--global', 'core.hooksPath', '.githooks'], {
-      env: { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, '.config') },
+      env: sandboxEnv(home),
     })
     // Git resolves a relative value per repository, so there is no single place
     // to install the chain, and none is needed: the value is the repository's

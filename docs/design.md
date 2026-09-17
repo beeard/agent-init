@@ -16,7 +16,7 @@ The tool addresses both by never shipping a rule without the check that enforces
 
 Every rule in the generated `AGENTS.md` either names the gate that enforces it or is honest that it is a judgment call.
 
-The result is a small set of gates that are cheap to run, which matters more than coverage. A gate that takes thirty seconds will be skipped. The pre-commit hook runs three of the five; the other two are whole-repository scans that belong before a push, not before every commit.
+The result is a small set of gates that are cheap to run, which matters more than coverage. A gate that takes thirty seconds will be skipped. The pre-commit hook runs the commit group; the whole-repository gate belongs before a push, not before every commit.
 
 ## Zero runtime dependencies
 
@@ -63,8 +63,11 @@ A layer is a directory with the same shape as the composed result, and its filen
 - **No suffix** writes the file. A later layer writing the same path replaces it.
 - **`.append`** appends to the named file inside `<!-- agent-init:begin <layer> -->` markers.
 - **`.merge`** merges a JSON object into the named file: a key holding an object on both sides merges one level deeper, so several layers contribute to one shared value instead of overwriting each other, while every other key is replaced. A key the two sides disagree about the shape of fails the run rather than being resolved either way, because composing a shared value and setting one outright are different intents and the shapes are what tell them apart.
+- **`.compose`** writes the file when it is absent, appends it inside the layer's markers when the repository already had that file and had not adopted this structure, and keeps it once adopted.
 
 The marker naming the layer is not decoration. With one shared marker, a second layer appending to `AGENTS.md` finds the marker present and contributes nothing — silently, with no failing check.
+
+`.compose` exists because the root `AGENTS.md` is the one document a receiving repository is likely to already have; the adoption manifest is what tells a file this tool wrote from one the repository had.
 
 `.merge` prevents the same failure in the other direction: a layer listing a manifest's complete contents goes stale the moment a lower layer adds an entry, and surfaces months later in an unrelated repository.
 
@@ -88,7 +91,7 @@ This is the "one home per fact" rule applied to the record set itself.
 
 ## What the tool deliberately does not do
 
-- **It does not know your language.** No test runner is configured, no linter, no build. A stack layer adds a rule or two about a language, but nothing runs your tests or your type checker — those belong to the project and its own tooling.
+- **It does not know your language.** No test runner is configured, no linter, no build. A stack layer adds a rule or two, and a TypeScript project also gets a `tsconfig.json` and a declared compiler so `tsc` can run — but nothing runs your tests, and the type checker stays the project's.
 - **It does not write a real architecture map.** It writes the skeleton, because only you know the system. A generated map would be confidently empty.
 - **It does not run on a schedule or enforce anything at runtime.** It writes files once, and the repository owns them from then on.
 - **It does not overwrite.** Re-running keeps existing files, so the tool can be re-run after an upgrade to add new files without destroying the edits a repository has made to the old ones.

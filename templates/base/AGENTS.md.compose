@@ -84,6 +84,8 @@ Skills in [.agents/skills/](.agents/skills/) are reusable workflows with their o
 | `{{SLUG}}-prose-standard` | Writing or trimming any prose: docs, comments, prompts, messages |
 | `{{SLUG}}-code-review` | Reviewing a change against this repository's standards |
 
+Only the workflows selected when the repository was set up are present.
+
 ## Editing this file
 
 Keep each rule self-contained and short, and link the document that owns the detail rather than restating it. `verify-doc-budgets` caps this file; when the cap goes red, relocate content to its home first, condense second, and raise the ceiling last — a ceiling that is genuinely too low is a bug in the budget, not a reason to delete a rule.

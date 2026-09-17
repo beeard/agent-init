@@ -71,6 +71,15 @@ agent-init . --name "<Project Name>" --stack <a> [--stack <b>] [--lenient]
 - `--dry-run` writes nothing. Use it when the user is unsure, and show them the plan.
 - `--with-architecture` **only** when the system really is assembled from plugins or extension points. A map of an architecture the repository does not have is worse than no map. Ask when in doubt rather than guessing.
 
+## TypeScript projects
+
+`--stack typescript` initialises the toolchain as well as the rules:
+
+- **No `tsconfig.json`** → the tool writes one, along with a `package.json` carrying `typecheck`, the gate scripts, and `typescript` in `devDependencies`. Run `npm install` so the compiler the gates resolve is actually there.
+- **An existing `tsconfig.json`** → the tool keeps it untouched and prints a note for every option the TypeScript orders assume but the file does not set, and for every value that differs from the recommended one. A `package.json` whose `type` is not `module` is reported the same way, because ESM depends on it.
+
+When it reports findings on an existing config, **ask before editing**. Say which options are missing or differ and why they matter, then apply them only on a yes. Edit the file in place so its comments survive — never round-trip it through a JSON writer, and never narrow `strict` or `include` to make a finding go away.
+
 ## Afterwards
 
 **1. Run the gates in the new tree and report the actual result:**

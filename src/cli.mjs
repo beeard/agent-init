@@ -75,6 +75,9 @@ function parseCli(argv) {
     ? BASE_SKILLS
     : values.skills.split(',').map(part => part.trim()).filter(Boolean)
   const skills = chosen.includes('all') ? BASE_SKILLS : chosen
+  if (skills.length === 0) {
+    throw new Error(`no skills selected; available: ${BASE_SKILLS.join(', ')}, all`)
+  }
   for (const skill of skills) {
     if (!BASE_SKILLS.includes(skill)) {
       throw new Error(`unknown skill "${skill}"; available: ${BASE_SKILLS.join(', ')}, all`)

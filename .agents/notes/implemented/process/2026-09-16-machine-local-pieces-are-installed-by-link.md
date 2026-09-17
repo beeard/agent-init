@@ -23,7 +23,7 @@ A link rather than a copy is what makes drift impossible: editing the clone chan
 
 The chain's source is `scripts/local/pre-commit.sh`. It carries an extension because the newline gate reads `**/*.sh` and a file named `pre-commit` would have been the one shipped file no check could see — Git takes the hook's name from the link, not from the source.
 
-A target that already holds something else is kept beside itself as `<name>.bak.<unix-time>` before being replaced, and never deleted. That follows the standing order to back up configuration outside version control.
+A target that already holds something else is kept beside itself as `<name>.bak.<unix-time>` before being replaced, and never deleted; the name gains a `-<n>` suffix when that stamp is already taken, so two runs in one second cannot overwrite the first backup. That follows the standing order to back up configuration outside version control.
 
 **A link is replaced, not backed up.** Renaming a link moves the path it holds rather than the file it names, so a "backup" made that way points at whatever the link said and dangles the moment that stops existing. A symlink carries no content to preserve, so it is unlinked and relinked; only a real file or directory is kept. The first version of this script renamed unconditionally, and its own second run produced a dangling backup that proved the rule.
 
@@ -71,4 +71,4 @@ A fifth cost is that the opt-in is a name this package invented, and a chain tha
 
 ## Related
 
-The skill this installs, and why it lives outside `templates/`, is in [The package ships its own setup skill](../feature/2026-09-16-the-package-ships-its-own-setup-skill.md). The three template forms and what a receiving repository owns are in [Layer stack profiles as additive overlays](../architecture/2026-09-15-layer-stack-profiles-as-overlays.md).
+The skill this installs, and why it lives outside `templates/`, is in [The package ships its own setup skill](../feature/2026-09-16-the-package-ships-its-own-setup-skill.md). The scaffolder's own hook install and what it refuses to displace are in [Adoption never displaces a hook](../bug-fix/2026-09-17-adoption-never-displaces-a-hook.md). The three template forms and what a receiving repository owns are in [Layer stack profiles as additive overlays](../architecture/2026-09-15-layer-stack-profiles-as-overlays.md).

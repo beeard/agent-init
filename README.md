@@ -52,7 +52,7 @@ scripts/gates/                the checks, zero dependencies
 .githooks/pre-commit          what runs on every commit, installed and activated
 ```
 
-The hook is activated unless `core.hooksPath` already points somewhere else. Git has only one, so a repository that points it at another hooks directory keeps it: the run reports `not activated` rather than replacing it, and the file is there to enable with `git config core.hooksPath .githooks`. That replaces the other directory's hooks rather than adding to them; to run both, have one directory's script call the other.
+The hook is installed without displacing anything: an existing `.githooks/pre-commit` is kept unless `--force` is given, and `core.hooksPath` is left alone when it points elsewhere in any scope or `.git/hooks` already holds an executable hook — Git reads one or the other, never both. It reports `not activated` and the way to enable it: `git config core.hooksPath .githooks`, which replaces the other directory's hooks rather than adding to them; to run both, have one call the other.
 
 ## Options
 
@@ -86,6 +86,7 @@ The gate in every profile **delegates to the language's own tooling** rather tha
 | `go` | `verify-go-docstrings.mjs` | `go/parser` and `go/ast`, via `go run` |
 | `rust` | `verify-rust-doc-comments.mjs` | rustc's built-in `missing_docs` lint, via `cargo check` |
 | `typescript` | `verify-typescript-doc-comments.mjs` | the `typescript` package from your own `node_modules` |
+| `typescript` | `verify-typescript-types.mjs` | the project's own `tsc --noEmit`, against its `tsconfig.json` |
 
 Every stack gate ships **advisory**: it reports findings without failing the run. Adopting on an existing codebase would otherwise greet the first run with the complete backlog of undocumented definitions. Clear the findings, then remove `"advisory": true` from that gate's entry in the generated `scripts/gates/gates.json`.
 
@@ -93,6 +94,8 @@ Two of them need something before they can run, and say so plainly when it is mi
 
 - **Rust** needs `#![warn(missing_docs)]` in each crate root. The lint is built into rustc, so the compiler already has the check — but it only fires when the crate enables it, and a gate that reports a clean run because its own check was silently disabled is worse than no gate. Add the attribute; the gate fails loud until you do.
 - **TypeScript** needs `typescript` resolvable from your repository, which any TypeScript project already has. It is your dependency, not this package's.
+
+**`--stack typescript` also initialises the project.** A repository with no `tsconfig.json` gets the strict ESM config the standing orders describe, and a `package.json` (if it had none) declaring `typescript`, `typecheck`, and the gate scripts — run `npm install` afterwards. An existing `tsconfig.json` is left alone short of `--force`: the run reports every option the orders assume but the file does not set, and every value that differs from the recommended one, so you can decide. `verify-typescript-types` needs both a config and the compiler, and names whichever is missing.
 
 **`--with-architecture`** adds the composition discipline: a system assembled from plugins, capability seams with their three roles, registrations as reversible effects, and the rule that anything model-visible is logged. Use it when the system really is composed that way; skip it otherwise, because a map of an architecture you do not have is worse than no map.
 
@@ -114,6 +117,7 @@ Zero dependencies, plain Node ESM, each runnable on its own. [gates.json](templa
 | `verify-python-docstrings.mjs` | commit, full | A public Python definition without a docstring — advisory |
 | `verify-go-docstrings.mjs` | commit, full | An exported Go declaration without a doc comment — advisory |
 | `verify-typescript-doc-comments.mjs` | commit, full | An exported TypeScript declaration without JSDoc — advisory |
+| `verify-typescript-types.mjs` | full | A project its own `tsc --noEmit` rejects — advisory |
 | `verify-rust-doc-comments.mjs` | full | A public Rust item without a doc comment — advisory |
 
 ```sh
@@ -134,11 +138,11 @@ Node 20 or newer for the gates. A stack's gate needs that language's toolchain, 
 - `python` — an interpreter on `PATH` (`python3` or `python`)
 - `go` — the Go toolchain
 - `rust` — `cargo`
-- `typescript` — the `typescript` package installed in your repository
+- `typescript` — the `typescript` package installed in your repository; `--stack typescript` declares it, and `npm install` fetches it
 
 A missing toolchain fails the gate loud, naming what is missing and how to opt out. It never reports a clean run it did not perform.
 
-Rust's gate runs in the `full` group only. `missing_docs` is a per-crate lint, so the gate compiles the crate rather than scanning files, and the `commit` group's contract is a hook that stays fast. Move it to `commit` in `scripts/gates/gates.json` if your crate is small enough to check on every commit.
+Rust's and TypeScript's type gates run in the `full` group only. `missing_docs` is a per-crate lint and a type error is a property of the whole program, so both compile the project rather than scanning files, and the `commit` group's contract is a hook that stays fast. Move either to `commit` in `scripts/gates/gates.json` if your project is small enough to check on every commit.
 
 ## Design
 

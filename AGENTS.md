@@ -9,7 +9,7 @@ Standing orders for agents working on `agent-init`. This repository uses the str
 - **Everything under `templates/` is product**, not project scaffolding. A template change changes what every receiving repository gets.
 - **`templates/base/` must stand alone.** The stack and architecture layers add to it and may never contradict it, and none of them may assume a lower layer's entries will stay unchanged — that is what `.merge` templates are for.
 
-## The three template forms
+## The template forms
 
 A template file is applied according to its suffix, and the suffix is the whole contract:
 
@@ -18,6 +18,7 @@ A template file is applied according to its suffix, and the suffix is the whole 
 | *(none)* | Written. A later layer writing the same path replaces it, so only the last write survives. |
 | `.append` | Appended to the named file inside `<!-- agent-init:begin <layer> -->` markers, so a re-run stays idempotent and two layers can both contribute. |
 | `.merge` | Merged into the named JSON object: a key holding an object on both sides merges one level deeper, every other key is replaced, and a key whose shape the two sides disagree on fails the run. |
+| `.compose` | Written as-is when the file is absent; appended inside the layer's markers when the repository already had that file and had not adopted this structure yet; kept once adopted. Used where a `write` would either lose the repository's own file or re-inject the orders after every edit. |
 
 A layer that restates a lower layer's entries instead of merging goes stale silently the moment the lower layer changes. Manifests — `gates.json`, `config.json`, `doc-budgets.manifest.json` — are `.merge` for exactly that reason.
 

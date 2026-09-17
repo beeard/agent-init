@@ -8,7 +8,7 @@
 
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join, relative, resolve, sep } from 'node:path'
-import { readJson, readText, slugify, substitute, today } from './util.mjs'
+import { isPlainObject, readJson, readJsonc, readText, slugify, substitute, today, toJson } from './util.mjs'
 
 /** Stack layers, selected by `--stack`. */
 export const STACKS = ['go', 'python', 'rust', 'typescript']
@@ -22,6 +22,26 @@ export const PACKAGE_SCRIPTS = {
   'check:agents:commit': 'node scripts/gates/run.mjs --group commit',
   'change-scope': 'node scripts/gates/change-scope.mjs',
 }
+
+/**
+ * `package.json` entries a stack layer contributes, added only where the key is
+ * absent. This is not a `.merge` template because a merge replaces a key both
+ * sides hold, and a project's own `typecheck` script or pinned compiler version
+ * is a choice this tool must not overwrite.
+ */
+const STACK_PACKAGE_CONTRIBUTIONS = {
+  typescript: {
+    scripts: { typecheck: 'tsc --noEmit' },
+    devDependencies: { typescript: '^5.6.0' },
+  },
+}
+
+/**
+ * Compiler options the TypeScript standing orders assert, as opposed to the
+ * ones the template merely recommends. A missing entry here is reported as a
+ * broken order; a differing value is always reported, never rewritten.
+ */
+const TYPESCRIPT_REQUIRED = ['strict', 'module', 'moduleResolution', 'target']
 
 /** The marker that records which version of the structure a repository adopted. */
 export const MANIFEST_PATH = '.agents/manifest.json'
@@ -40,6 +60,20 @@ const APPEND_SUFFIX = '.append'
  * see `mergeJson` in `apply.mjs`.
  */
 const MERGE_SUFFIX = '.merge'
+
+/**
+ * A suffix marking a template that composes with the target: written as-is when
+ * the file is absent, appended as a marked section when the repository already
+ * had a file of its own and had not adopted this structure yet, and left alone
+ * once adopted.
+ *
+ * A plain `write` cannot do this. The root `AGENTS.md` may already exist — a
+ * Next.js project ships one — and keeping it leaves the base standing orders
+ * unwritten, while appending unconditionally would re-inject them after every
+ * hand-edit. The adoption marker is what tells "a file we wrote" from "a file
+ * the repository already had".
+ */
+const COMPOSE_SUFFIX = '.compose'
 
 /**
  * Recursively list every file under a directory.
@@ -68,6 +102,20 @@ function layerFiles(templatesRoot, layer) {
 }
 
 /**
+ * The skills the base layer offers, named as the caller selects them.
+ * @param templatesRoot - Absolute path to the package's `templates/` directory.
+ * @returns Bare skill names, sorted.
+ */
+function offeredSkills(templatesRoot) {
+  const dir = join(templatesRoot, 'base', '.agents', 'skills')
+  if (!existsSync(dir)) return []
+  return readdirSync(dir, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .map(entry => (entry.name.startsWith('{{SLUG}}-') ? entry.name.slice('{{SLUG}}-'.length) : entry.name))
+    .sort()
+}
+
+/**
  * Build every action for one scaffold run.
  * @param options - Run options.
  * @param options.targetDir - Absolute path to the repository being scaffolded.
@@ -88,19 +136,28 @@ export function buildPlan({ targetDir, templatesRoot, projectName, skills, stack
   const files = []
   const symlinks = []
   const layers = ['base', ...stack, ...(architecture ? ['architecture'] : [])]
+  const templatesByLayer = new Map(layers.map(layer => [layer, layerFiles(templatesRoot, layer)]))
 
   // A layer with no template directory contributes nothing and reports success.
   // That is the silent-skip failure the shipped rules forbid, so a declared
   // layer that contributes no files is an error rather than an empty layer.
-  const empty = layers.filter(layer => layerFiles(templatesRoot, layer).length === 0)
+  const empty = layers.filter(layer => templatesByLayer.get(layer).length === 0)
   if (empty.length > 0) {
     throw new Error(`no templates found for layer(s): ${empty.join(', ')} (looked under ${templatesRoot})`)
   }
 
+  // A skill name that matches no template plans no files and reports success,
+  // which is the same silent skip one level down.
+  const offered = offeredSkills(templatesRoot)
+  const unknown = skills.filter(skill => !offered.includes(skill))
+  if (unknown.length > 0) {
+    throw new Error(`unknown skill(s): ${unknown.join(', ')} (available: ${offered.join(', ')}, all)`)
+  }
+
   for (const layer of layers) {
-    for (const abs of layerFiles(templatesRoot, layer)) {
+    for (const abs of templatesByLayer.get(layer)) {
       if (layer === 'base' && abs.includes(`${sep}skills${sep}`)) {
-        const dir = relative(join(templatesRoot, 'base', '.agents', 'skills'), abs).split(sep)[0] ?? ''
+        const dir = relative(join(templatesRoot, 'base', '.agents', 'skills'), abs).split(sep)[0]
         // Template skill directories carry the project slug as a prefix; the
         // caller selects them by their bare name.
         const skillName = dir.startsWith('{{SLUG}}-') ? dir.slice('{{SLUG}}-'.length) : dir
@@ -109,8 +166,12 @@ export function buildPlan({ targetDir, templatesRoot, projectName, skills, stack
       const relTemplate = relative(join(templatesRoot, layer), abs).split(sep).join('/')
       const kind = relTemplate.endsWith(APPEND_SUFFIX) ? 'append'
         : relTemplate.endsWith(MERGE_SUFFIX) ? 'merge'
-          : 'write'
-      const suffix = kind === 'append' ? APPEND_SUFFIX : kind === 'merge' ? MERGE_SUFFIX : ''
+          : relTemplate.endsWith(COMPOSE_SUFFIX) ? 'compose'
+            : 'write'
+      const suffix = kind === 'append' ? APPEND_SUFFIX
+        : kind === 'merge' ? MERGE_SUFFIX
+          : kind === 'compose' ? COMPOSE_SUFFIX
+            : ''
       const relPath = substitute(suffix === '' ? relTemplate : relTemplate.slice(0, -suffix.length), variables)
       const path = resolve(targetDir, relPath)
       const content = substitute(readText(abs), variables)
@@ -133,7 +194,8 @@ export function buildPlan({ targetDir, templatesRoot, projectName, skills, stack
     variables,
     files: lenient ? markAdvisory(dedupe(files)) : dedupe(files),
     symlinks,
-    mergedScripts: mergePackageScripts(targetDir),
+    package: packageContribution(targetDir, stack, variables),
+    typescriptConfig: typescriptConfigReport(targetDir, templatesRoot, stack),
     manifest: { version: 1, adopted: variables.DATE, layers, skills, stack, architecture, lenient },
   }
 }
@@ -166,11 +228,12 @@ function assertStacksDoNotShare(files, stack) {
       continue
     }
     if (held.layer === file.layer) continue
-    // Two appends or two merges compose; a write among them replaces.
-    if (held.kind !== 'write' && file.kind !== 'write') continue
-    const writer = held.kind === 'write' ? held.layer : file.layer
-    const other = held.kind === 'write' ? file.layer : held.layer
-    const clash = held.kind === 'write' && file.kind === 'write'
+    // Two appends or two merges compose; a write or a compose among them replaces.
+    const replaces = kind => kind === 'write' || kind === 'compose'
+    if (!replaces(held.kind) && !replaces(file.kind)) continue
+    const writer = replaces(held.kind) ? held.layer : file.layer
+    const other = replaces(held.kind) ? file.layer : held.layer
+    const clash = replaces(held.kind) && replaces(file.kind)
       ? `"${held.layer}" and "${file.layer}" both write ${file.relPath}`
       : `"${writer}" writes ${file.relPath} and "${other}" also contributes to it`
     throw new Error(
@@ -201,21 +264,22 @@ function markAdvisory(files) {
 }
 
 /**
- * Keep the last `write` for each path so a later layer overrides an earlier
- * one, while `append` and `merge` actions always accumulate: they add to what
- * is already there rather than replacing it.
+ * Keep the last `write` or `compose` for each path so a later layer overrides
+ * an earlier one, while `append` and `merge` actions always accumulate: they add
+ * to what is already there rather than replacing it.
  * @param files - Planned file actions in layer order.
  * @returns Deduplicated actions preserving first-seen order.
  */
 function dedupe(files) {
+  const replaces = kind => kind === 'write' || kind === 'compose'
   const lastWrite = new Map()
   for (const file of files) {
-    if (file.kind === 'write') lastWrite.set(file.relPath, file)
+    if (replaces(file.kind)) lastWrite.set(file.relPath, file)
   }
   const kept = []
   const seenWrite = new Set()
   for (const file of files) {
-    if (file.kind !== 'write') {
+    if (!replaces(file.kind)) {
       kept.push(file)
       continue
     }
@@ -228,18 +292,109 @@ function dedupe(files) {
 }
 
 /**
- * Work out which package.json scripts the run would add.
+ * Work out which `package.json` entries the run would add.
+ *
+ * The base scripts are always offered; a stack layer adds its own. An entry is
+ * added only where the key is absent, so a project's own script or its pinned
+ * dependency version is never replaced. A target with no `package.json` gets
+ * one only when a selected stack declares a dependency — the base scripts alone
+ * do not justify creating a package manifest for a non-Node repository.
+ *
  * @param targetDir - Absolute path to the target repository.
- * @returns Scripts to add, or `null` when the repository has no `package.json`.
+ * @param stack - Stack layers this run applies.
+ * @param variables - Substitution variables, for the created package name.
+ * @returns Contribution with `path`, `exists`, `additions`, and a `create` body when absent.
  */
-function mergePackageScripts(targetDir) {
-  const path = resolve(targetDir, 'package.json')
-  if (!existsSync(path) || !statSync(path).isFile()) return null
-  const pkg = readJson(path)
-  const existing = pkg.scripts ?? {}
-  const additions = {}
-  for (const [name, command] of Object.entries(PACKAGE_SCRIPTS)) {
-    if (!Object.hasOwn(existing, name)) additions[name] = command
+function packageContribution(targetDir, stack, variables) {
+  const scripts = { ...PACKAGE_SCRIPTS }
+  const devDependencies = {}
+  for (const layer of stack) {
+    const contribution = STACK_PACKAGE_CONTRIBUTIONS[layer]
+    if (contribution === undefined) continue
+    Object.assign(scripts, contribution.scripts)
+    Object.assign(devDependencies, contribution.devDependencies)
   }
-  return { path, additions }
+  const path = resolve(targetDir, 'package.json')
+  const exists = existsSync(path) && statSync(path).isFile()
+
+  if (!exists) {
+    return {
+      path,
+      exists: false,
+      moduleType: 'module',
+      additions: { scripts: {}, devDependencies: {} },
+      create: Object.keys(devDependencies).length === 0 ? null : {
+        name: variables.SLUG,
+        private: true,
+        type: 'module',
+        scripts,
+        devDependencies,
+      },
+    }
+  }
+
+  const pkg = readJson(path)
+  const existingScripts = isPlainObject(pkg.scripts) ? pkg.scripts : {}
+  const declared = {
+    ...(isPlainObject(pkg.dependencies) ? pkg.dependencies : {}),
+    ...(isPlainObject(pkg.devDependencies) ? pkg.devDependencies : {}),
+    ...(isPlainObject(pkg.peerDependencies) ? pkg.peerDependencies : {}),
+    ...(isPlainObject(pkg.optionalDependencies) ? pkg.optionalDependencies : {}),
+  }
+  return {
+    path,
+    exists: true,
+    // Node reads a `.ts` file as ESM only when the package says so, so the
+    // TypeScript layer's ESM orders depend on this value, not only on tsconfig.
+    moduleType: isPlainObject(pkg) && typeof pkg.type === 'string' ? pkg.type : null,
+    additions: {
+      scripts: Object.fromEntries(Object.entries(scripts).filter(([name]) => !Object.hasOwn(existingScripts, name))),
+      devDependencies: Object.fromEntries(Object.entries(devDependencies).filter(([name]) => !Object.hasOwn(declared, name))),
+    },
+    create: null,
+  }
+}
+
+/**
+ * Compare an existing `tsconfig.json` against the layer's own config.
+ *
+ * An existing file is never merged or rewritten: it may carry comments that a
+ * JSON round-trip would drop, and its values are the project's choices. The
+ * report says what the TypeScript standing orders assume but the file does not
+ * set, so a caller can ask before changing anything.
+ *
+ * @param targetDir - Absolute path to the target repository.
+ * @param templatesRoot - Absolute path to the package's `templates/` directory.
+ * @param stack - Stack layers this run applies.
+ * @returns The report, or `null` when the TypeScript layer is not applied.
+ */
+function typescriptConfigReport(targetDir, templatesRoot, stack) {
+  if (!stack.includes('typescript')) return null
+  const templatePath = join(templatesRoot, 'typescript', 'tsconfig.json')
+  const path = resolve(targetDir, 'tsconfig.json')
+  const empty = { path, exists: existsSync(path), error: null, required: [], suggested: [], conflicts: [] }
+  if (!existsSync(templatePath) || !empty.exists) return empty
+
+  let recommended
+  let actual
+  try {
+    recommended = readJsonc(templatePath).compilerOptions ?? {}
+    const file = readJsonc(path)
+    actual = isPlainObject(file.compilerOptions) ? file.compilerOptions : {}
+  } catch (error) {
+    return { ...empty, error: error instanceof Error ? error.message : String(error) }
+  }
+
+  const required = []
+  const suggested = []
+  const conflicts = []
+  for (const [key, value] of Object.entries(recommended)) {
+    const demanded = TYPESCRIPT_REQUIRED.includes(key)
+    if (!Object.hasOwn(actual, key)) {
+      ;(demanded ? required : suggested).push({ key, value })
+      continue
+    }
+    if (toJson(actual[key]) !== toJson(value)) conflicts.push({ key, found: actual[key], recommended: value, required: demanded })
+  }
+  return { ...empty, required, suggested, conflicts }
 }

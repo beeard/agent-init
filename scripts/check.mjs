@@ -19,6 +19,7 @@
 
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { spawnSync } from 'node:child_process'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { walkAgentNoteTree } from '../templates/base/scripts/gates/agent-note-tree.mjs'
@@ -29,14 +30,20 @@ import { checkIssueTags } from '../templates/base/scripts/gates/verify-issue-tag
 import { checkMarkdownLinks } from '../templates/base/scripts/gates/verify-md-links.mjs'
 import { checkMarkdownWrap } from '../templates/base/scripts/gates/verify-md-wrap.mjs'
 import { applyPlan } from '../src/apply.mjs'
-import { STACKS, buildPlan } from '../src/plan.mjs'
+import { BASE_SKILLS, STACKS, buildPlan } from '../src/plan.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, '..')
 const TEMPLATES = resolve(ROOT, 'templates')
 
 /**
- * Run every gate for one root and normalise the results.
+ * Run every base gate for one root and normalise the results.
+ *
+ * `count` is the size of the corpus each gate judged. A gate whose corpus is
+ * empty has passed without checking anything, so a zero count is reported as a
+ * failure for the gates that read files (`corpus: true`) rather than printed as
+ * a clean run.
+ *
  * @param root - Absolute repository root to check.
  * @param label - Prefix for a failure message, so the two runs stay distinct.
  * @returns One entry per gate.
@@ -49,32 +56,72 @@ function runGates(root, label) {
   const newline = checkFinalNewline(root)
   const tags = checkIssueTags(root)
   const tag = message => `${label}${message}`
+  const emptyCorpus = count => (count === 0 ? [tag('corpus is empty; the gate checked nothing')] : [])
 
   return [
-    { name: 'agent-note-tree', checked: `${tree.notes.length} record(s)`, failures: tree.errors.map(tag) },
-    { name: 'verify-agent-note-format', checked: `${tree.notes.length} record(s)`, failures: checkAgentNoteFormat(root).map(tag) },
+    { name: 'agent-note-tree', count: tree.notes.length, checked: `${tree.notes.length} record(s)`, failures: tree.errors.map(tag) },
+    {
+      name: 'verify-agent-note-format',
+      count: tree.notes.length,
+      checked: `${tree.notes.length} record(s)`,
+      failures: checkAgentNoteFormat(root).map(tag),
+    },
     {
       name: 'verify-md-wrap',
+      corpus: true,
+      count: wrap.checked,
       checked: `${wrap.checked} file(s)`,
-      failures: wrap.violations.map(v => tag(`${v.relPath}:${v.line}  ${v.text.slice(0, 70)}`)),
+      failures: [...wrap.violations.map(v => tag(`${v.relPath}:${v.line}  ${v.text.slice(0, 70)}`)), ...emptyCorpus(wrap.checked)],
     },
     {
       name: 'verify-md-links',
+      corpus: true,
+      count: links.checked,
       checked: `${links.checked} file(s)`,
-      failures: links.violations.map(v => tag(`${v.relPath}:${v.line}  ${v.target} — ${v.reason}`)),
+      failures: [...links.violations.map(v => tag(`${v.relPath}:${v.line}  ${v.target} — ${v.reason}`)), ...emptyCorpus(links.checked)],
     },
     {
       name: 'verify-final-newline',
+      corpus: true,
+      count: newline.checked,
       checked: `${newline.checked} file(s)`,
-      failures: newline.violations.map(v => tag(`${v.relPath}  ${v.reason}`)),
+      failures: [...newline.violations.map(v => tag(`${v.relPath}  ${v.reason}`)), ...emptyCorpus(newline.checked)],
     },
-    { name: 'verify-doc-budgets', checked: `${budgets.count} document(s)`, failures: budgets.failures.map(tag) },
+    {
+      name: 'verify-doc-budgets',
+      corpus: true,
+      count: budgets.count,
+      checked: `${budgets.count} document(s)`,
+      failures: [...budgets.failures.map(tag), ...emptyCorpus(budgets.count)],
+    },
     {
       name: 'verify-issue-tags',
+      corpus: true,
+      count: tags.checked,
       checked: `${tags.checked} file(s), ${tags.markers.length} marker(s)`,
-      failures: tags.nameless.map(m => tag(`${m.relPath}:${m.line}  ${m.tag} names nothing`)),
+      failures: [...tags.nameless.map(m => tag(`${m.relPath}:${m.line}  ${m.tag} names nothing`)), ...emptyCorpus(tags.checked)],
     },
   ]
+}
+
+/**
+ * Run a composed scaffold's own gate suite as a receiving repository would.
+ *
+ * The base-gate checks above import their gate modules directly, so they never
+ * execute a stack gate. This runs the shipped `run.mjs` instead, which walks
+ * the composed `gates.json` and so covers every registered gate — including the
+ * stack layers'. Stack gates ship advisory, so a missing toolchain reports
+ * without failing, which is what keeps this check portable.
+ *
+ * @param dir - Absolute path to the composed scaffold.
+ * @returns Exit code and combined output.
+ */
+function runComposedSuite(dir) {
+  const result = spawnSync(process.execPath, [join(dir, 'scripts', 'gates', 'run.mjs'), '--group', 'full'], {
+    cwd: dir,
+    encoding: 'utf8',
+  })
+  return { code: result.status ?? 1, output: `${result.stdout ?? ''}${result.stderr ?? ''}`.trimEnd() }
 }
 
 /**
@@ -95,7 +142,7 @@ function composeScaffold(options) {
     targetDir: dir,
     templatesRoot: TEMPLATES,
     projectName: 'check',
-    skills: ['agent-notes', 'pre-push-checks', 'prose-standard', 'code-review'],
+    skills: BASE_SKILLS,
     ...options,
   })
   applyPlan(plan, { hooks: false })
@@ -138,8 +185,11 @@ let total = 0
 
 const packageRootConfig = packageConfig(ROOT)
 if (packageRootConfig.markdownGlobs.some(glob => glob.startsWith('templates/'))) {
-  console.error('scripts/gates/config.json must not scan templates/ directly; the composed runs cover them.')
-  process.exitCode = 1
+  // A configuration that scans templates/ judges the source rather than the
+  // composed artifact, which is the one thing this script exists to avoid.
+  total++
+  failed++
+  console.error('FAIL  package gate config        scripts/gates/config.json must not scan templates/ directly; the composed runs cover them.')
 } else {
   for (const result of runGates(ROOT, '[package] ')) {
     total++
@@ -161,11 +211,23 @@ for (const { label, options } of scaffolds()) {
     const failures = results.flatMap(result => result.failures)
     if (failures.length === 0) {
       console.log(`ok    ${label.trim().padEnd(26)} composed scaffold passes every gate`)
-      continue
+    } else {
+      failed++
+      console.error(`FAIL  ${label.trim().padEnd(26)} composed scaffold`)
+      for (const failure of failures) console.error(`      ${failure}`)
     }
-    failed += results.length
-    console.error(`FAIL  ${label.trim().padEnd(26)} composed scaffold`)
-    for (const failure of failures) console.error(`      ${failure}`)
+
+    // The checks above import their gate modules, so no stack gate runs there.
+    // The composed suite is what proves every registered gate actually starts.
+    total++
+    const suite = runComposedSuite(dir)
+    if (suite.code === 0) {
+      console.log(`ok    ${label.trim().padEnd(26)} composed gate suite runs`)
+    } else {
+      failed++
+      console.error(`FAIL  ${label.trim().padEnd(26)} composed gate suite`)
+      for (const line of suite.output.split('\n')) console.error(`      ${line}`)
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

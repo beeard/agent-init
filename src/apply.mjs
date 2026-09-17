@@ -6,9 +6,10 @@
  * run asked for it: re-running the scaffolder must be safe.
  */
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { MANIFEST_PATH, PACKAGE_SCRIPTS } from './plan.mjs'
 import { isPlainObject, readJson, toJson, writeText } from './util.mjs'
 
@@ -37,6 +38,9 @@ git diff --cached --check
 export function applyPlan(plan, { force = false, dryRun = false, hooks = true } = {}) {
   const results = []
   const notes = []
+  // Read before anything is written: the manifest is what distinguishes a file
+  // this structure wrote from one the repository already had.
+  const adopted = existsSync(resolve(plan.targetDir, MANIFEST_PATH))
 
   for (const file of plan.files) {
     if (file.kind === 'append') {
@@ -45,6 +49,10 @@ export function applyPlan(plan, { force = false, dryRun = false, hooks = true } 
     }
     if (file.kind === 'merge') {
       results.push(mergeJson(file, { force, dryRun }))
+      continue
+    }
+    if (file.kind === 'compose') {
+      results.push(composeFile(file, { force, dryRun, adopted }))
       continue
     }
     results.push(writeFile(file, { force, dryRun }))
@@ -66,11 +74,19 @@ export function applyPlan(plan, { force = false, dryRun = false, hooks = true } 
     results.push(writeFile(manifestFile, { force, dryRun }))
   }
 
-  if (plan.mergedScripts && Object.keys(plan.mergedScripts.additions).length > 0) {
-    results.push(mergeScripts(plan.mergedScripts, { dryRun }))
+  if (plan.package !== null) {
+    const entry = applyPackage(plan.package, { dryRun, notes })
+    if (entry !== null) results.push(entry)
   }
 
-  if (hooks) results.push(installHook(plan.targetDir, { dryRun, notes }))
+  if (plan.typescriptConfig !== null) reportTypescriptConfig(plan.typescriptConfig, notes)
+  if (plan.typescriptConfig !== null && plan.package.exists && plan.package.moduleType !== 'module') {
+    // Node reads a `.ts` file as ESM only when the package says so, so the ESM
+    // standing orders cannot hold while this value does not.
+    notes.push(`package.json "type" is ${plan.package.moduleType === null ? 'unset' : JSON.stringify(plan.package.moduleType)}; the TypeScript orders assume ESM. Set "type": "module", or name the files .mts. Left as is — ask the user.`)
+  }
+
+  if (hooks) results.push(installHook(plan.targetDir, { force, dryRun, notes }))
 
   return { results, notes }
 }
@@ -118,6 +134,37 @@ function appendFile(file, { force, dryRun }) {
     writeText(file.path, `${current}${separator}${begin}\n${file.content.trimEnd()}\n${end}\n`)
   }
   return { relPath: file.relPath, outcome: 'appended' }
+}
+
+/**
+ * Write a composing template, or add it as a marked section to a file the
+ * repository already had.
+ *
+ * Three cases, and the adoption marker is what separates the last two. No file
+ * → written as-is, so a fresh repository gets the document and not a wrapper.
+ * A file, and this structure was never adopted here → the content is appended
+ * as a named section, because the repository's own file is not ours to replace
+ * but the orders still have to exist. A file in a repository that did adopt →
+ * left alone, so a hand-edited document survives every later run.
+ *
+ * @param file - A `compose` action.
+ * @param options - Overwrite flag, dry-run flag, and whether the structure is already adopted.
+ * @returns Outcome entry.
+ */
+function composeFile(file, { force, dryRun, adopted }) {
+  const begin = beginMarker(file.layer)
+  const end = endMarker(file.layer)
+  if (force || !existsSync(file.path)) {
+    return writeFile({ ...file, kind: 'write' }, { force, dryRun })
+  }
+  const current = readFileSync(file.path, 'utf8')
+  if (current.includes(begin)) return { relPath: file.relPath, outcome: 'kept', detail: 'section already present' }
+  if (adopted) return { relPath: file.relPath, outcome: 'kept', detail: 'exists' }
+  if (!dryRun) {
+    const separator = current.endsWith('\n') ? '\n' : '\n\n'
+    writeText(file.path, `${current}${separator}${begin}\n${file.content.trimEnd()}\n${end}\n`)
+  }
+  return { relPath: file.relPath, outcome: 'composed', detail: 'appended; the file was already here' }
 }
 
 /**
@@ -230,26 +277,107 @@ function createSymlink(link, { dryRun }) {
 }
 
 /**
- * Add the gate scripts to an existing `package.json` without touching entries
- * the repository already defines.
- * @param merged - Target path plus the scripts to add.
- * @param options - Dry-run flag.
- * @returns Outcome entry.
+ * Whether a package resolves from the target repository.
+ * @param root - Absolute repository root.
+ * @param specifier - Package name to resolve.
+ * @returns True when Node can resolve it.
  */
-function mergeScripts(merged, { dryRun }) {
-  const pkg = readJson(merged.path)
-  if (!isPlainObject(pkg)) return { relPath: 'package.json', outcome: 'kept', detail: 'not a JSON object' }
-  const added = Object.keys(merged.additions)
-  if (!dryRun) {
-    pkg.scripts = { ...merged.additions, ...(isPlainObject(pkg.scripts) ? pkg.scripts : {}) }
-    writeText(merged.path, toJson(pkg))
+function resolves(root, specifier) {
+  try {
+    createRequire(join(root, 'package.json')).resolve(specifier)
+    return true
+  } catch {
+    return false
   }
-  return { relPath: 'package.json', outcome: 'merged', detail: `+ ${added.join(', ')}` }
+}
+
+/**
+ * Create or extend `package.json` with the entries this run contributes.
+ *
+ * A key the repository already defines is left alone, in `scripts` and in every
+ * dependency section alike. A repository with no `package.json` gets one only
+ * when a selected stack declares a dependency, and the created manifest carries
+ * exactly what this run owns.
+ *
+ * @param contribution - The plan's `package` contribution.
+ * @param options - Dry-run flag and a note sink.
+ * @returns Outcome entry, or `null` when there is nothing to do.
+ */
+function applyPackage(contribution, { dryRun, notes }) {
+  if (!contribution.exists) {
+    if (contribution.create === null) return null
+    const created = contribution.create
+    if (!dryRun) {
+      writeText(contribution.path, toJson(created))
+      notes.push('package.json was created; review it before committing, and run `npm install` to fetch '
+        + `${Object.keys(created.devDependencies).join(', ')}.`)
+    }
+    const entries = [...Object.keys(created.scripts), ...Object.keys(created.devDependencies)]
+    return { relPath: 'package.json', outcome: 'added', detail: `+ ${entries.join(', ')}` }
+  }
+
+  const pkg = readJson(contribution.path)
+  if (!isPlainObject(pkg)) return { relPath: 'package.json', outcome: 'kept', detail: 'not a JSON object' }
+  const scripts = Object.keys(contribution.additions.scripts)
+  const dependencies = Object.keys(contribution.additions.devDependencies)
+  if (scripts.length === 0 && dependencies.length === 0) return null
+
+  if (!dryRun) {
+    pkg.scripts = { ...contribution.additions.scripts, ...(isPlainObject(pkg.scripts) ? pkg.scripts : {}) }
+    pkg.devDependencies = { ...contribution.additions.devDependencies, ...(isPlainObject(pkg.devDependencies) ? pkg.devDependencies : {}) }
+    writeText(contribution.path, toJson(pkg))
+  }
+  const detail = [
+    scripts.length > 0 ? `+ ${scripts.join(', ')}` : null,
+    dependencies.length > 0 ? `+ ${dependencies.join(', ')} in devDependencies` : null,
+  ].filter(part => part !== null).join(', ')
+  if (!dryRun && dependencies.some(name => !resolves(dirname(contribution.path), name))) {
+    notes.push(`${dependencies.join(', ')} was added to devDependencies; run \`npm install\` so the stack's gates can find it.`)
+  }
+  return { relPath: 'package.json', outcome: 'merged', detail }
+}
+
+/**
+ * Report what an existing `tsconfig.json` does not set, without editing it.
+ *
+ * The file is left exactly as it is: it may hold comments and deliberate values
+ * that a rewrite would lose. The notes name each gap and the recommended value,
+ * which is the point at which a caller asks the user before changing anything.
+ *
+ * @param report - The plan's TypeScript config report.
+ * @param notes - Note sink.
+ */
+function reportTypescriptConfig(report, notes) {
+  if (!report.exists) return
+  if (report.error !== null) {
+    notes.push(`tsconfig.json could not be read (${report.error}); the TypeScript gates may not run.`)
+    return
+  }
+  for (const { key, value } of report.required) {
+    notes.push(`tsconfig.json: "compilerOptions.${key}" is not set; the TypeScript orders assume ${JSON.stringify(value)}.`)
+  }
+  for (const { key, found, recommended } of report.conflicts) {
+    // One line per finding: a multi-line JSON dump would break the report rows.
+    notes.push(`tsconfig.json: "compilerOptions.${key}" is ${JSON.stringify(found)}, recommended ${JSON.stringify(recommended)}.`)
+  }
+  if (report.suggested.length > 0) {
+    notes.push(`tsconfig.json: ${report.suggested.length} recommended option(s) are not set (${report.suggested.map(option => option.key).join(', ')}).`)
+  }
+  if (report.required.length > 0 || report.conflicts.length > 0 || report.suggested.length > 0) {
+    notes.push('tsconfig.json was left as it is, so its comments and values survive. Ask the user whether to apply the options above.')
+  }
 }
 
 /**
  * Install the fast pre-commit hook and point Git at the hook directory, unless
- * the repository already configured a different one.
+ * the repository already configured a different one — or already had a hook
+ * this run would displace.
+ *
+ * Two things are never taken over silently. A `.githooks/pre-commit` the
+ * repository already holds is kept unless the run asked to replace it, and
+ * `core.hooksPath` is not pointed at `.githooks` when `$GIT_DIR/hooks` already
+ * holds an executable hook, because Git reads only one of the two directories
+ * and setting the path would quietly stop the other from running.
  *
  * When another `core.hooksPath` is in the way, the hook file cannot be reached
  * by Git at all, and the only thing that can run it is a chain in whatever
@@ -259,33 +387,97 @@ function mergeScripts(merged, { dryRun }) {
  * repository cannot opt itself in by shipping a file.
  *
  * @param targetDir - Absolute path to the target repository.
- * @param options - Dry-run flag and a note sink.
+ * @param options - Overwrite flag, dry-run flag, and a note sink.
  * @returns Outcome entry.
  */
-function installHook(targetDir, { dryRun, notes }) {
+function installHook(targetDir, { force, dryRun, notes }) {
   const hookPath = resolve(targetDir, '.githooks', 'pre-commit')
+  const present = existsSync(hookPath) ? readFileSync(hookPath, 'utf8') : null
+  if (present !== null && present !== PRE_COMMIT && !force) {
+    notes.push('.githooks/pre-commit already exists and was kept; the gates are not wired into it. '
+      + 'Add `node scripts/gates/run.mjs --group commit` to it, or re-run with --force to replace it.')
+    return { relPath: '.githooks/pre-commit', outcome: 'kept', detail: 'exists; gates not installed' }
+  }
+  const unchanged = present === PRE_COMMIT
   if (!dryRun) {
     mkdirSync(dirname(hookPath), { recursive: true })
-    writeFileSync(hookPath, PRE_COMMIT, 'utf8')
+    // A re-run leaves the file it already wrote alone, so its mtime and mode
+    // survive a run that changed nothing.
+    if (!unchanged) writeFileSync(hookPath, PRE_COMMIT, 'utf8')
     chmodSync(hookPath, 0o755)
   }
-  const current = spawnSync('git', ['-C', targetDir, 'config', '--local', '--get', 'core.hooksPath'], { encoding: 'utf8' })
+  const current = spawnSync('git', ['-C', targetDir, 'config', '--get', 'core.hooksPath'], { encoding: 'utf8' })
   const configured = (current.stdout ?? '').trim()
   if (configured !== '' && configured !== '.githooks') {
     // Git will not read this hook, so say what turns it on rather than only
     // what is in the way. Both commands are needed: the marker lets a hook
     // chain run the file, and the path is what Git itself would need.
     //
-    // `--local` is explicit rather than left to Git's default. The marker is
-    // only worth anything in the repository's own config, and a redirect
-    // through `GIT_CONFIG` would otherwise put it somewhere nothing reads,
-    // silently, because the result is not inspected.
+    // The value is read across every scope rather than `--local` alone: a
+    // global or system `core.hooksPath` is what Git actually resolves, and
+    // writing a local one over it would silently stop those hooks from
+    // running. The write below stays `--local`, because the marker is only
+    // worth anything in the repository's own config, and a redirect through
+    // `GIT_CONFIG` would otherwise put it somewhere nothing reads, silently,
+    // because the result is not inspected.
     if (!dryRun) setLocalConfig(targetDir, 'agent-init.githooks', 'true', notes)
     notes.push(`core.hooksPath is already ${configured}; left as is. These hooks run where that directory chains to them, and otherwise with: git config core.hooksPath .githooks`)
-    return { relPath: '.githooks/pre-commit', outcome: 'added', detail: 'not activated' }
+    return { relPath: '.githooks/pre-commit', outcome: unchanged ? 'kept' : 'added', detail: 'not activated' }
+  }
+  if (configured === '') {
+    const displaced = executableGitHooks(targetDir)
+    if (displaced.length > 0) {
+      // Git reads `core.hooksPath` or `$GIT_DIR/hooks`, never both, so pointing
+      // the path at `.githooks` would stop these from running without a word.
+      if (!dryRun) setLocalConfig(targetDir, 'agent-init.githooks', 'true', notes)
+      notes.push(`core.hooksPath is unset and $GIT_DIR/hooks already holds ${displaced.join(', ')}; left unset so they keep running. `
+        + 'Point it at .githooks yourself to run the gates on every commit, or call this hook from the existing one.')
+      return { relPath: '.githooks/pre-commit', outcome: unchanged ? 'kept' : 'added', detail: 'not activated' }
+    }
   }
   if (!dryRun) setLocalConfig(targetDir, 'core.hooksPath', '.githooks', notes)
-  return { relPath: '.githooks/pre-commit', outcome: 'added', detail: 'activated' }
+  return {
+    relPath: '.githooks/pre-commit',
+    outcome: present === null ? 'added' : unchanged ? 'kept' : 'replaced',
+    detail: unchanged ? 'already installed; activated' : 'activated',
+  }
+}
+
+/**
+ * List the executable hooks Git would read from `$GIT_DIR/hooks`.
+ *
+ * The directory is resolved through Git rather than assumed, because the
+ * repository may be a linked worktree whose real Git directory lives
+ * elsewhere. Sample hooks are inert and are ignored.
+ *
+ * @param targetDir - Absolute path to the target repository.
+ * @returns Hook filenames, sorted.
+ */
+function executableGitHooks(targetDir) {
+  const result = spawnSync('git', ['-C', targetDir, 'rev-parse', '--git-path', 'hooks'], { encoding: 'utf8' })
+  if (result.status !== 0) return []
+  const reported = (result.stdout ?? '').trim()
+  if (reported === '') return []
+  // `--git-path` answers relative to the repository when it is not absolute,
+  // and `-C` already moved Git there, so resolve against the target.
+  const dir = isAbsolute(reported) ? reported : resolve(targetDir, reported)
+  let entries
+  try {
+    entries = readdirSync(dir, { withFileTypes: true })
+  } catch {
+    return []
+  }
+  return entries
+    .filter(entry => entry.isFile() && !entry.name.endsWith('.sample'))
+    .filter((entry) => {
+      try {
+        return (statSync(join(dir, entry.name)).mode & 0o111) !== 0
+      } catch {
+        return false
+      }
+    })
+    .map(entry => entry.name)
+    .sort()
 }
 
 /**

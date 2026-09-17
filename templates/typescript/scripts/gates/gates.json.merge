@@ -3,5 +3,10 @@
     "groups": ["commit", "full"],
     "description": "JSDoc on exported TypeScript declarations",
     "advisory": true
+  },
+  "verify-typescript-types.mjs": {
+    "groups": ["full"],
+    "description": "the project's own tsc --noEmit",
+    "advisory": true
   }
 }
