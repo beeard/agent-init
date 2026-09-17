@@ -43,6 +43,17 @@ const STACK_PACKAGE_CONTRIBUTIONS = {
  */
 const TYPESCRIPT_REQUIRED = ['strict', 'module', 'moduleResolution', 'target']
 
+/**
+ * Compiler options that describe the module system and build target.
+ *
+ * In a bundler-built project these are the framework's choices, not the
+ * repository's, so a report that names them hands an agent defects to fix in
+ * a config the framework owns. They are excluded from the findings entirely
+ * when the run detects a bundler; only a non-bundler project is told about
+ * them.
+ */
+const TYPESCRIPT_MODULE_OPTIONS = ['module', 'moduleResolution', 'target', 'lib']
+
 /** The marker that records which version of the structure a repository adopted. */
 export const MANIFEST_PATH = '.agents/manifest.json'
 
@@ -455,10 +466,14 @@ function typescriptConfigReport(targetDir, templatesRoot, stack) {
     return { ...empty, error: error instanceof Error ? error.message : String(error) }
   }
 
+  const bundler = bundlerBuild(targetDir, actual, packageJson)
   const required = []
   const suggested = []
   const conflicts = []
   for (const [key, value] of Object.entries(recommended)) {
+    // A bundler project's module settings are the framework's; reporting them
+    // as findings is the defect this exclusion exists to prevent.
+    if (bundler && TYPESCRIPT_MODULE_OPTIONS.includes(key)) continue
     const demanded = TYPESCRIPT_REQUIRED.includes(key)
     if (!Object.hasOwn(actual, key)) {
       ;(demanded ? required : suggested).push({ key, value })
@@ -468,5 +483,5 @@ function typescriptConfigReport(targetDir, templatesRoot, stack) {
       conflicts.push({ key, found: actual[key], recommended: value, required: demanded })
     }
   }
-  return { ...empty, required, suggested, conflicts, bundler: bundlerBuild(targetDir, actual, packageJson) }
+  return { ...empty, required, suggested, conflicts, bundler }
 }

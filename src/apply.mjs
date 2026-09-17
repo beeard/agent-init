@@ -22,13 +22,14 @@ const endMarker = layer => `<!-- agent-init:end ${layer} -->`
  *
  * The template's module settings describe a program Node runs directly, and
  * the standing orders read that way too. A bundler app is the other case, and
- * the module settings above are then not gaps to close but choices the
- * framework made: `moduleResolution: "bundler"` permits the extensionless
- * relative imports a Next.js or Vite project writes, while `NodeNext` requires
- * `.js` extensions on every one of them. Following the recommendation would
- * stop the project building.
+ * its module settings are not gaps to close but choices the framework made:
+ * `moduleResolution: "bundler"` permits the extensionless relative imports a
+ * Next.js or Vite project writes, while `NodeNext` requires `.js` extensions
+ * on every one of them. Following the recommendation would stop the project
+ * building, so the plan withholds those findings and this note is the only
+ * thing the run says about the module system.
  */
-const BUNDLER_NOTE = 'tsconfig.json: a bundler builds this project, so the module settings above are the framework\'s to choose. "NodeNext" and "type": "module" describe a Node program; apply the strictness options if they help, and leave the module and target values alone.'
+const BUNDLER_NOTE = 'tsconfig.json: a bundler builds this project, so the module and target settings are the framework\'s to choose. "NodeNext" and "type": "module" describe a Node program; apply the strictness options if they help, and leave the module and target values alone.'
 
 /** The pre-commit hook, kept to checks that stay fast on every commit. */
 const PRE_COMMIT = `#!/bin/sh
@@ -399,11 +400,8 @@ function reportTypescriptConfig(report, notes) {
   }
   if (report.bundler) notes.push(BUNDLER_NOTE)
   if (report.required.length > 0 || report.conflicts.length > 0 || report.suggested.length > 0) {
-    // With a bundler present the closing line cannot say "apply the options
-    // above": the ones about the module system are the ones that must not be
-    // applied, and a summary that leaves that to the reader is the defect.
     notes.push(report.bundler
-      ? 'tsconfig.json was left as it is. Apply the strictness options if the user wants them; leave the module settings to the framework.'
+      ? 'tsconfig.json was left as it is. Apply the strictness options if the user wants them; leave the module and target settings to the framework.'
       : 'tsconfig.json was left as it is, so its comments and values survive. Ask the user whether to apply the options above.')
   }
 }

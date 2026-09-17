@@ -57,4 +57,6 @@ The tool still has one TypeScript profile. A bundler project gets its own config
 
 ## Related
 
+**Partially superseded by** [A bundler project gets no module findings](../bug-fix/2026-09-17-a-bundler-project-gets-no-module-findings.md): the "Silence the module conflicts entirely" alternative rejected below shipped after a bundler project's agent applied the reported findings and broke the build. The detection, the note, the closing line, the `"type"` suppression, and the strictness reporting decided here stand; the choice to keep the module conflicts visible does not. The quoted note's wording also changed with that fix, since "the settings above" no longer exist.
+
 Which options the layer assumes and why is in [TypeScript projects are initialised, not just annotated](../feature/2026-09-17-typescript-projects-are-initialised.md). The procedure an agent follows when a config is left alone, including the framework ordering, is in [The installed skill names its own package](../bug-fix/2026-09-17-the-installed-skill-names-its-own-package.md).

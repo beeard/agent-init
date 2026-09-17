@@ -721,7 +721,12 @@ test('a bundler project is told to keep its module settings', () => {
     assert.equal(result.code, 0, result.output)
     assert.equal(readFileSync(tsconfig, 'utf8'), source, 'the framework config must not be rewritten')
     assert.match(result.output, /a bundler builds this project/u)
-    assert.match(result.output, /leave the module settings to the framework/u)
+    assert.match(result.output, /leave the module and target settings to the framework/u)
+    // The module and target settings must not be findings at all: an agent
+    // reading them as defects would rewrite the framework's config and stop
+    // the project building. Only the strictness options may be reported.
+    assert.doesNotMatch(result.output, /"compilerOptions\.(module|moduleResolution|target|lib)"/u)
+    assert.match(result.output, /noUncheckedIndexedAccess/u)
     // The report may still list what differs — it is a report — but it must not
     // close by telling the reader to apply it, and it must not raise the ESM
     // note for a project that resolves its own imports.
