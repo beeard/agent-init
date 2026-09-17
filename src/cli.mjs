@@ -52,7 +52,7 @@ Options
                        right when this package will not move; npm may prune the
                        directory it is fetched into.
   --skill-dir <path>   With --install-skill: the skills directory to install into
-                       (default: ~/.claude/skills)
+                       (default: $CLAUDE_CONFIG_DIR/skills, or ~/.claude/skills)
   --help               Show this message
 `
 

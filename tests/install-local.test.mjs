@@ -33,13 +33,14 @@ function sandboxEnv(home) {
  * Run the installer against a sandbox home.
  * @param home - Absolute sandbox path used as `$HOME` and `$XDG_CONFIG_HOME`.
  * @param args - Arguments after the script path.
+ * @param extra - Additional environment variables for this run.
  * @returns Exit code and combined output.
  */
-function install(home, args = []) {
+function install(home, args = [], extra = {}) {
   const result = spawnSync(
     process.execPath,
     [join(PACKAGE_ROOT, 'scripts', 'install-local.mjs'), ...args],
-    { encoding: 'utf8', env: sandboxEnv(home) },
+    { encoding: 'utf8', env: { ...sandboxEnv(home), ...extra } },
   )
   return { code: result.status ?? 1, output: `${result.stdout}${result.stderr}` }
 }
@@ -335,6 +336,23 @@ test('a dry run writes nothing', () => {
     assert.match(result.output, /nothing was written/u)
     assert.ok(!existsSync(join(home, '.config', 'git', 'hooks', 'pre-commit')))
     assert.ok(!existsSync(join(home, '.claude', 'skills', 'agent-init-setup')))
+  } finally {
+    removeSandbox(home)
+  }
+})
+
+test('CLAUDE_CONFIG_DIR relocates the skills link', () => {
+  const home = makeHome()
+  try {
+    const configDir = join(home, 'claude-config')
+    const result = install(home, [], { CLAUDE_CONFIG_DIR: configDir })
+    assert.equal(result.code, 0, result.output)
+    const skills = join(configDir, 'skills', 'agent-init-setup')
+    assert.equal(readlinkSync(skills), join(PACKAGE_ROOT, 'skills', 'agent-init-setup'))
+    // The relocated directory replaces the default, not joins it: a skill the
+    // relocated session cannot see is not installed.
+    assert.ok(!existsSync(join(home, '.claude', 'skills', 'agent-init-setup')))
+    assert.match(result.output, /skills\/agent-init-setup/u)
   } finally {
     removeSandbox(home)
   }

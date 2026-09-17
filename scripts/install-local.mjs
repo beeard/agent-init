@@ -164,7 +164,13 @@ if (hooks === null) {
   outcomes.push(link(join(ROOT, 'scripts', 'local', 'pre-commit.sh'), join(hooks, 'pre-commit'), dryRun))
 }
 
-outcomes.push(link(join(ROOT, 'skills', 'agent-init-setup'), join(HOME, '.claude', 'skills', 'agent-init-setup'), dryRun))
+// `CLAUDE_CONFIG_DIR` relocates Claude's whole configuration, so the skills
+// directory follows it; the hard-coded default is the common case only.
+const SKILLS_DIR = process.env.CLAUDE_CONFIG_DIR
+  ? join(resolve(process.env.CLAUDE_CONFIG_DIR), 'skills')
+  : join(HOME, '.claude', 'skills')
+
+outcomes.push(link(join(ROOT, 'skills', 'agent-init-setup'), join(SKILLS_DIR, 'agent-init-setup'), dryRun))
 
 process.stdout.write(`agent-init: ${dryRun ? 'plan for' : 'installed'} machine-local links from ${ROOT}\n\n`)
 for (const line of outcomes) process.stdout.write(`  ${line}\n`)

@@ -33,10 +33,15 @@ export const COORDINATE_FILE = `${SETUP_SKILL}.json`
 
 /**
  * Where an agent looks for a user-scope skill.
+ *
+ * The default is Claude's user skills directory. `CLAUDE_CONFIG_DIR` relocates
+ * that whole directory, and a hard-coded `~/.claude` would install a skill the
+ * relocated session never reads, so the variable wins when it is set.
  * @returns Absolute path to the skills directory.
  */
 export function userSkillsDir() {
-  return join(homedir(), '.claude', 'skills')
+  const config = process.env.CLAUDE_CONFIG_DIR
+  return config !== undefined && config !== '' ? join(resolve(config), 'skills') : join(homedir(), '.claude', 'skills')
 }
 
 /**

@@ -108,7 +108,7 @@ Do not "fix" that by pointing core.hooksPath at .githooks on your own initiative
 
 ## 7. Afterwards, optionally
 
-The tarball also contains the tool's own setup skill, which is this procedure in its versioned form. Linking it makes future runs on this machine work without this prompt:
+The tarball also contains the tool's own setup skill, which is this procedure in its versioned form. Linking it into the directory this agent reads skills from (`~/.claude/skills` for Claude Code, or `$CLAUDE_CONFIG_DIR/skills` when that is set) makes future runs on this machine work without this prompt:
 
     mkdir -p ~/.claude/skills
     ln -s /tmp/agent-init/package/skills/agent-init-setup ~/.claude/skills/agent-init-setup

@@ -11,14 +11,25 @@ The tool writes a self-contained tree into the repository: `AGENTS.md` with stan
 
 It is run from a clone, from a linked command, or through `npx`. Check the coordinate this skill was installed with, then the local checks, in that order:
 
+The coordinate file sits **beside this SKILL.md file** — check the directory this skill was loaded from first, whatever agent or skills layout it is:
+
 ```sh
-for f in ~/.claude/skills/agent-init-setup.json .claude/skills/agent-init-setup.json; do
+for f in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/agent-init-setup.json" \
+         "$HOME/.claude/skills/agent-init-setup.json" \
+         .claude/skills/agent-init-setup.json; do
   if [ -f "$f" ]; then cat "$f"; break; fi
 done
-command -v agent-init || ls ./*/src/cli.mjs 2>/dev/null
 ```
 
+In practice you already know the directory you read this file from: look there for `agent-init-setup.json` before running any shell. The `for` loop is the fallback for when you only hold the skill's text.
+
 The coordinate file is written when the skill is installed from a package, and its `npx` field is the exact specifier to run — package name and version together. Use that specifier and never an unpinned `npx`, which upgrades silently mid-run.
+
+Then check for a local install:
+
+```sh
+command -v agent-init
+```
 
 If nothing answers, the skill was installed by hand and the tool is not here. Ask the user where their clone is, or which package and version to run. Do not guess a package name: `npx` fetches and executes whatever the name resolves to, so a guess at an unpublished name is a typosquat target rather than a lookup. Do not improvise a substitute for the tool either — a hand-written `AGENTS.md` is what the run replaces.
 
@@ -48,23 +59,37 @@ Read the repository rather than assuming. Each hit gives one `--stack`:
 | `tsconfig.json`, or `package.json` with `typescript` among the dependencies | `typescript` |
 
 ```sh
-fd -d 1 'go\.mod|pyproject\.toml|setup\.(py|cfg)|requirements\.txt|Cargo\.toml|tsconfig\.json|package\.json'
+ls -1 go.mod pyproject.toml setup.py setup.cfg requirements.txt Cargo.toml tsconfig.json package.json 2>/dev/null
+ls -1 *.py 2>/dev/null
 ```
+
+Plain `ls` is used on purpose: it is everywhere, and a finder such as `fd` is not.
 
 There is no `javascript` stack. A plain JS project gets `base` alone, which is correct — base is language-neutral by design.
 
 For several languages, take each stack the repository actually maintains rather than every file type you can see. An `examples/` tree in another language is not a language the repository owns. Each stack adds a gate that requires that language's toolchain, so a stack that cannot run is a gate that fails.
 
-## Fresh or existing repository
+## Empty directory, existing repository, or in between
+
+Decide the order first, from what the target directory actually is. Ask the user only when the branch is not clear.
+
+**Empty or near-empty directory (no `package.json`, no manifest, no commits).** The tool would scaffold into a directory a framework has not written yet, and the framework would then overwrite the tool's files. The order that works is fixed:
+
+1. Ask the user what to build, and scaffold the framework: `create-next-app`, `cargo new`, `npm init`, whatever the project is.
+2. `git init` if the framework did not already do it. The tool refuses to run outside a Git worktree.
+3. Run the tool (below), with `--stack` matching what the framework wrote.
+
+Never run the tool on the empty directory first and the framework after; that run's files are the ones the generator replaces.
+
+**Repository with content and no `.agents/manifest.json`.** Add `--lenient`. Every gate becomes advisory, so the first run reports the backlog instead of failing on rules the team never agreed to. Tell the user the gates are tightened one at a time by removing `"advisory": true` in `scripts/gates/gates.json`.
+
+**Fresh Git repository with no commits.** Run without `--lenient`. The gates are strict from the first day, and a fresh tree passes them.
+
+**The directory is not a Git repository at all.** The tool refuses to run. Run `git init` first, which is almost always what the user wants. `--allow-non-git` exists for genuine exceptions only: without Git the repository loses `change-scope`, and the `--staged` bounds in the commit gates fall back to scanning everything.
 
 ```sh
 git rev-list --count HEAD 2>/dev/null || echo 0
 ```
-
-- **Empty repository, no commits** → run without `--lenient`. The gates are strict from the first day, and a fresh tree passes them.
-- **Repository with history or content** → add `--lenient`. Every gate becomes advisory, so the first run reports the backlog instead of failing on rules the team never agreed to. Tell the user the gates are tightened one at a time by removing `"advisory": true` in `scripts/gates/gates.json`.
-
-**If the directory is not a Git repository at all**, the tool refuses to run. Run `git init` first, which is almost always what the user wants. `--allow-non-git` exists for genuine exceptions only: without Git the repository loses `change-scope`, and the `--staged` bounds in the commit gates fall back to scanning everything.
 
 ## Run it
 
@@ -85,7 +110,7 @@ agent-init . --name "<Project Name>" --stack <a> [--stack <b>] [--lenient]
 
 When it reports findings on an existing config, **ask before editing**. Say which options are missing or differ and why they matter, then apply them only on a yes. Edit the file in place so its comments survive — never round-trip it through a JSON writer, and never narrow `strict` or `include` to make a finding go away.
 
-**Scaffold the framework first, then run this.** A generator such as `create-next-app` or `cargo new` writes its own `tsconfig.json`, `package.json`, or manifest, and one run on an empty directory would have those replace what the tool wrote. Run the generator first: the tool then finds the configuration, leaves it alone, and reports what it does not set. That report is the decision to make, not an error to clear.
+**The generator runs before this tool** — the ordering rule above, applied here with the most at stake. A generator such as `create-next-app` writes its own `tsconfig.json` and `package.json`, and one run on an empty directory would have those replace what the tool wrote. Run the generator first: the tool then finds the configuration, leaves it alone, and reports what it does not set. That report is the decision to make, not an error to clear.
 
 ## Afterwards
 

@@ -142,6 +142,20 @@ test('--skill-dir installs where it is told', () => {
   }
 })
 
+test('CLAUDE_CONFIG_DIR relocates the default skills directory', () => {
+  const home = makeSandbox()
+  try {
+    const configDir = join(home, 'claude-config')
+    const result = runCli(['--install-skill'], PACKAGE_ROOT, { HOME: home, CLAUDE_CONFIG_DIR: configDir })
+    assert.equal(result.code, 0, result.output)
+    assert.ok(existsSync(join(configDir, 'skills', 'agent-init-setup', 'SKILL.md')))
+    assert.ok(existsSync(join(configDir, 'skills', 'agent-init-setup.json')))
+    assert.ok(!existsSync(join(home, '.claude')), 'the hard-coded default must not be created behind a relocated config')
+  } finally {
+    removeSandbox(home)
+  }
+})
+
 test('refuses scaffold options beside --install-skill', () => {
   // The negative control for the guard: each of these would otherwise be
   // dropped, and the run would report success for a scaffold it never did.
