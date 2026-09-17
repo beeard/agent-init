@@ -41,7 +41,7 @@ The tool is attached as a tarball, agent-init-0.1.0.tgz, in the same place attac
     mkdir -p /tmp/agent-init && tar -xzf <path-to>/agent-init-0.1.0.tgz -C /tmp/agent-init
     node /tmp/agent-init/package/src/cli.mjs --help
 
-Requirements: Node 20 or newer, Git, and a shell. The tool has zero runtime dependencies and needs no install step — the packed tree carries its own templates. Confirm the --help output lists the options named below before going further; if it does not, the tarball is not what this prompt expects, so say so instead of adapting.
+Requirements: Node 20.11 or newer, Git, and a shell. The tool has zero runtime dependencies and needs no install step — the packed tree carries its own templates. Confirm the --help output lists the options named below before going further; if it does not, the tarball is not what this prompt expects, so say so instead of adapting.
 
 ## 2. Read the repository before choosing any flag
 

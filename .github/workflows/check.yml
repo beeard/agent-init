@@ -1,0 +1,58 @@
+name: check
+
+# The repository's own rule is that `npm test` and `npm run check` pass before a
+# change is reported as done. This is that rule with something enforcing it.
+#
+# Two Node versions, because `engines` promises a floor and the floor is the
+# version nobody develops on: `import.meta.dirname` reaches every gate, so the
+# package would install on an older 20.x and fail at the first gate run.
+#
+# The stack gates need their language's toolchain and fail loud without it. The
+# runner image carries Python, Go, and Rust; the TypeScript gate reads the
+# `typescript` package from the repository it judges, which the composed
+# TypeScript scaffold declares, so it is installed globally here to make that
+# gate mean something rather than report a missing toolchain.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20.11', '26']
+    name: node ${{ matrix.node }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Report the toolchains the stack gates will use
+        run: |
+          node --version
+          git --version
+          for tool in python3 go cargo tsc; do
+            command -v "$tool" >/dev/null && "$tool" --version 2>&1 | head -1 || echo "$tool: absent (its gate fails loud if the stack is applied)"
+          done
+
+      - name: Install the TypeScript compiler the TypeScript gate resolves
+        run: npm install --global typescript
+
+      # No dependencies and no lockfile, so nothing is installed for the package
+      # itself; npm start would be a no-op step and is deliberately absent.
+      - name: The scaffolder's own behaviour, and one negative control per gate
+        run: npm test
+
+      - name: The shipped gates, against every composed layer combination
+        run: npm run check

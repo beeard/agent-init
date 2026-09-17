@@ -1,0 +1,16 @@
+# Line endings are part of what this package ships.
+#
+# The gates read text files in the receiving repository and the scaffolder
+# writes a shell hook that Git must be able to execute, so a checkout that
+# rewrote either to CRLF would break a repository that this one never sees. One
+# contributor on Windows is enough, which is why the rule is declared rather
+# than left to each machine's `core.autocrlf`.
+#
+# `text=auto` still lets Git detect binary content, so nothing here forces a
+# conversion on a file that is not text.
+* text=auto eol=lf
+
+# The hook is executed by name from `core.hooksPath`, and a shell script that
+# lost its executable bit is a hook Git skips without saying so.
+*.sh text eol=lf
+pre-commit text eol=lf

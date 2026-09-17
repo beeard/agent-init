@@ -32,6 +32,20 @@ npx agent-init --install-skill --skill-dir <path>
 
 **The path arithmetic is shared; the rendering is not.** `src/skill-install.mjs` owns where the skill goes and what each collision is called, and both the CLI and `scripts/install-local.mjs` use it. Rendering stays with each caller, because the clone installer shortens `$HOME` to `~` and the CLI prints the path it was given.
 
+**`bin` names the CLI without a leading `./`.** `npm publish` warns that `"./src/cli.mjs"` is an invalid script name and removes the entry, which would leave the published package with no `agent-init` command at all: every `npx agent-init` in this repository's own documentation would fail, and the failure would appear only after publishing. `npm pkg fix` rewrote it.
+
+**`engines` states `>=20.11`, not `>=20`.** `import.meta.dirname` reaches every gate, so an older 20.x satisfies the range, installs, and fails at the first gate run. The floor is the version that actually works, and the README and the external-agent prompt say the same number.
+
+**Line endings are declared in `.gitattributes`.** The package ships a shell hook that Git must be able to execute and gates that read text, so a checkout that rewrote either to CRLF would break a repository this one never sees. `text=auto` still lets Git detect binary content.
+
+## Testing
+
+`.github/workflows/check.yml` runs `npm test` and `npm run check` on every push and pull request, on Node 20.11 and the current release. The repository's standing orders already said both must pass before a change is reported as done; until now nothing enforced it on a change that arrived from anywhere else, and the floor version in `engines` was a claim nobody ran.
+
+The runner image carries Python, Go, and Rust, and the workflow installs the `typescript` package so the TypeScript gate resolves a compiler instead of a missing toolchain — a stack gate that cannot reach its toolchain fails loud, which under `check.mjs` would surface as a failing composed run for a reason that has nothing to do with the change.
+
+What the workflow does **not** verify: the registry round trip. `npm publish --dry-run` is clean, the tarball's own manifest carries `bin`, `repository`, and `license`, and the installed package was driven end to end from a prefix in this session — but nothing here can fetch `agent-init` from npm by name until someone publishes it. The same gap applies to the GitHub URLs in `package.json`, which answer 404 while the repository is private.
+
 ## Alternatives considered
 
 **Make the user link the skill by hand, as the README already said.** Zero new surface, and it is what the clone workflow needs anyway. Rejected because it is exactly the step an npm user cannot perform: there is no clone to link to, and the README's `ln -s /path/to/agent-init/...` names a path they do not have.

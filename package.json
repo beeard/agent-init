@@ -28,7 +28,7 @@
   },
   "author": "Tom Steinar Thorsen <tomsteinar@gmail.com>",
   "engines": {
-    "node": ">=20"
+    "node": ">=20.11"
   },
   "scripts": {
     "test": "node --test",

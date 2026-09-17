@@ -130,7 +130,7 @@ Gates in the `commit` group receive `--staged`, which restricts them to the file
 
 ## Requirements
 
-Node 20 or newer for the gates. A stack's gate needs that language's toolchain, and only when the stack is applied:
+Node 20.11 or newer for the gates. A stack's gate needs that language's toolchain, and only when the stack is applied:
 
 - `python` — an interpreter on `PATH` (`python3` or `python`)
 - `go` — the Go toolchain
