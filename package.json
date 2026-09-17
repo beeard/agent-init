@@ -1,5 +1,5 @@
 {
-  "name": "agent-init",
+  "name": "@beeard/agent-init",
   "version": "0.1.0",
   "description": "Scaffold an agent-operating structure into any repository: standing orders, decision records, skills, and the gates that enforce them.",
   "type": "module",

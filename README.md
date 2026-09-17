@@ -15,7 +15,7 @@ Written rules fail the other way: a document nobody reads, drifting away from wh
 From a fresh repository:
 
 ```sh
-npx agent-init . --name "My Project" --stack python
+npx @beeard/agent-init . --name "My Project" --stack python
 ```
 
 `npx` needs neither an install nor a clone. `--stack` is optional and repeatable, and needs that language's toolchain. Then the shipped gates, in the repository it wrote: `node scripts/gates/run.mjs`.
@@ -25,7 +25,7 @@ npx agent-init . --name "My Project" --stack python
 The package ships the procedure as a skill: it reads the repository, picks the language profiles, and runs the tool. One command installs it into `~/.claude/skills/`, so no later session needs this page:
 
 ```sh
-npx agent-init --install-skill
+npx @beeard/agent-init --install-skill
 ```
 
 From a clone, `ln -s <clone>/skills/agent-init-setup ~/.claude/skills/agent-init-setup` links it instead, so edits to the clone take effect.

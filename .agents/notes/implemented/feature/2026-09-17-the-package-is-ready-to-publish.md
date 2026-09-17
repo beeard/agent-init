@@ -6,23 +6,35 @@ Status: implemented
 
 `agent-init` was installable only from a clone on one machine. Nothing about the tool required that — no runtime dependencies, `npm pack` produced a self-contained tree — but every path to it was closed:
 
-- `npm view agent-init` answered 404, so there was no published package.
+- No package was published, and `npm view agent-init` answered 404.
 - The GitHub remote is private, so there was nothing to clone.
 - The setup skill's own first step, `command -v agent-init || ls ./*/src/cli.mjs`, succeeds only where the clone or the link already exists.
 
 Three smaller gaps followed from the same place. `package.json` declared `"license": "MIT"` with no `LICENSE` file beside it, which is the one omission a reader evaluating a tool that writes into their repository notices first. It declared no `repository`, `homepage`, or `bugs`, so the npm page would have carried no link back. And the packaged skill was unreachable to anyone who installed through npm: `scripts/install-local.mjs` links it, and that script is deliberately not in the published `files` list, because it installs the hook chain for a clone.
 
+The name itself was a fourth gap, and it only appeared when the first publish was attempted. `npm publish` rejects `agent-init` outright:
+
+```text
+403 Package name too similar to existing package agentinit; try renaming your package
+```
+
+`agentinit` is not a squatter: it is an active package in the same subject area, and npm will not carry a name one hyphen away from it. The check runs at publish time, so no amount of looking the name up beforehand would have found it — `npm view agent-init` answered 404, which reads exactly like "available".
+
 ## Decision
+
+**The package is `@beeard/agent-init`, published with `--access public`.** The scope is what makes the name registrable at all, and it is also the convention here: `agent-init` already exists in the registry twice under other scopes, so a reader looking for this tool meets a namespace rather than a collision. The `bin` entry stays `agent-init`, so the command a user types is unchanged — only the `npx` specifier carries the scope.
 
 **A `LICENSE` file with the MIT text**, and `package.json` now names `repository`, `homepage`, `bugs`, and `author`. `LICENSE` joins the `files` list, so it is in the published tarball rather than only in the repository.
 
-**`agent-init --install-skill` installs the setup skill**, in `src/skill-install.mjs`:
+**`@beeard/agent-init --install-skill` installs the setup skill**, in `src/skill-install.mjs`:
 
 ```sh
-npx agent-init --install-skill              # copies into ~/.claude/skills/
-npx agent-init --install-skill --link       # symlinks instead
-npx agent-init --install-skill --skill-dir <path>
+npx @beeard/agent-init --install-skill              # copies into ~/.claude/skills/
+npx @beeard/agent-init --install-skill --link       # symlinks instead
+npx @beeard/agent-init --install-skill --skill-dir <path>
 ```
+
+The command is `agent-init`, from `bin`, whatever the package is called; only the `npx` specifier carries the scope.
 
 **It copies by default.** `npx` runs the package from a directory npm is free to prune, and a symlink into a pruned path is a skill that reads as installed and works never — the failure mode the whole feature exists to prevent. `--link` is for the case where the package will not move. The clone's installer keeps linking, which is what makes edits to the clone take effect and what keeps the two from drifting on one machine.
 
@@ -32,7 +44,7 @@ npx agent-init --install-skill --skill-dir <path>
 
 **The path arithmetic is shared; the rendering is not.** `src/skill-install.mjs` owns where the skill goes and what each collision is called, and both the CLI and `scripts/install-local.mjs` use it. Rendering stays with each caller, because the clone installer shortens `$HOME` to `~` and the CLI prints the path it was given.
 
-**`bin` names the CLI without a leading `./`.** `npm publish` warns that `"./src/cli.mjs"` is an invalid script name and removes the entry, which would leave the published package with no `agent-init` command at all: every `npx agent-init` in this repository's own documentation would fail, and the failure would appear only after publishing. `npm pkg fix` rewrote it.
+**`bin` names the CLI without a leading `./`.** `npm publish` warns that `"./src/cli.mjs"` is an invalid script name and removes the entry, which would leave the published package with no `agent-init` command at all: every `npx` line in this repository's own documentation would fail, and the failure would appear only after publishing. `npm pkg fix` rewrote it.
 
 **`engines` states `>=20.11`, not `>=20`.** `import.meta.dirname` reaches every gate, so an older 20.x satisfies the range, installs, and fails at the first gate run. The floor is the version that actually works, and the README and the external-agent prompt say the same number.
 
@@ -44,7 +56,7 @@ npx agent-init --install-skill --skill-dir <path>
 
 The runner image carries Python, Go, and Rust, and the workflow installs the `typescript` package so the TypeScript gate resolves a compiler instead of a missing toolchain — a stack gate that cannot reach its toolchain fails loud, which under `check.mjs` would surface as a failing composed run for a reason that has nothing to do with the change.
 
-What the workflow does **not** verify: the registry round trip. `npm publish --dry-run` is clean, the tarball's own manifest carries `bin`, `repository`, and `license`, and the installed package was driven end to end from a prefix in this session — but nothing here can fetch `agent-init` from npm by name until someone publishes it. The same gap applies to the GitHub URLs in `package.json`, which answer 404 while the repository is private.
+What the workflow does **not** verify: the registry round trip, which was verified by hand instead. `@beeard/agent-init@0.1.0` is published and fetched back from the registry with a fresh cache: `npm view` reports the version, `bin`, `license`, and `repository`, `npx @beeard/agent-init@0.1.0 --install-skill` copies the skill into an empty `$HOME`, and `npx @beeard/agent-init@0.1.0 . --stack python` scaffolds a repository whose eight gates then pass. The GitHub URLs in `package.json` still answer 404 while the repository is private, which is the one gap publishing the package did not close.
 
 ## Alternatives considered
 
@@ -62,9 +74,9 @@ What the workflow does **not** verify: the registry round trip. `npm publish --d
 
 ## Consequences
 
-The tool can be published: `npm pack` now carries 70 files and 90 kB including the `LICENSE`, and `npx agent-init@<version> --install-skill` bootstraps the durable procedure on a machine that has never seen the repository.
+The tool can be published: `npm pack` now carries 70 files and 90 kB including the `LICENSE`, and `npx @beeard/agent-init@<version> --install-skill` bootstraps the durable procedure on a machine that has never seen the repository.
 
-Nothing here publishes anything. The npm name `agent-init` is still unclaimed and this machine has no npm credentials — `npm whoami` answers `ENEEDAUTH` — so the first publish is a deliberate act with an account behind it, not a side effect of this change.
+Nothing here publishes anything: the first publish was a deliberate act with an npm account behind it — `npm whoami` answered `ENEEDAUTH` until then — and the OTP npm requires for a `PUT` is not something this repository can perform. The scope is what made it publishable at all; without one, npm refuses `agent-init` outright and no account changes that.
 
 Two implementations of a link still exist and this records why: `install-local.mjs` relinks a stale symlink without a backup, because a link holds a path rather than content, and the CLI's `copyPath` backs up a real directory. They share the path arithmetic and the outcome vocabulary, so they cannot disagree about where the skill goes.
 
