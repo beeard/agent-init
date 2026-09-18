@@ -47,7 +47,12 @@ jobs:
           done
 
       - name: Install the TypeScript compiler the TypeScript gate resolves
-        run: npm install --global typescript
+        # Pinned to the range the TypeScript scaffold declares for a receiving
+        # repository, because the gate reads the compiler API from the package
+        # root and TypeScript 7's root exports only its version. An unpinned
+        # install therefore hands the gate a compiler it refuses, which leaves
+        # the TypeScript negative control unable to run.
+        run: npm install --global typescript@^5.6.0
 
       # No dependencies and no lockfile, so nothing is installed for the package
       # itself; npm start would be a no-op step and is deliberately absent.
