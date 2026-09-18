@@ -42,10 +42,11 @@ const HAS_CARGO = available('cargo', ['--version'])
  */
 function typescriptPackage() {
   const globalRoot = spawnSync('npm', ['root', '--global'], { encoding: 'utf8' })
-  const candidates = [PACKAGE_ROOT]
-  if (globalRoot.status === 0 && globalRoot.stdout.trim() !== '') candidates.push(globalRoot.stdout.trim())
-  for (const root of candidates) {
-    const dir = join(root, 'node_modules', 'typescript')
+  // `npm root --global` already names a `node_modules` directory, so only the
+  // package-local candidate needs that segment appended.
+  const candidates = [join(PACKAGE_ROOT, 'node_modules', 'typescript')]
+  if (globalRoot.status === 0 && globalRoot.stdout.trim() !== '') candidates.push(join(globalRoot.stdout.trim(), 'typescript'))
+  for (const dir of candidates) {
     if (existsSync(join(dir, 'package.json'))) return dir
   }
   return null

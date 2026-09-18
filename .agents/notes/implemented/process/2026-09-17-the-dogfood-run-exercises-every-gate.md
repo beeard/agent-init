@@ -30,8 +30,10 @@ The check proves the artifact a receiving repository gets:
 
 A broken or missing gate now fails the check that exists to catch it, and a configuration that narrows a corpus to nothing fails instead of passing quietly. The check spawns a child per composed scaffold, so it is slower by roughly one suite per combination.
 
-The trade is that a stack gate whose analysis is wrong while its process exits zero still passes here. That remains the stack tests' job, and the TypeScript gate's analysis is exercised only for its missing-toolchain path because this package ships no compiler.
+The trade is that a stack gate whose analysis is wrong while its process exits zero still passes here. That remains the stack tests' job, and the TypeScript gate's analysis now runs there wherever a compiler is installed; this package still ships none, so the dogfood run itself reaches only the missing-toolchain path.
 
 ## Related
 
 Which combinations the matrix covers is in [Layer stack profiles as additive overlays](../architecture/2026-09-15-layer-stack-profiles-as-overlays.md).
+
+Partially superseded by [An export assignment is reported, not a crash](../bug-fix/2026-09-18-an-export-assignment-is-reported-not-a-crash.md): the TypeScript analysis the trade above left to the stack tests is now exercised by one, so the coverage sentence there is corrected rather than replaced. Everything else decided here stands.

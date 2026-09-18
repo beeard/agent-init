@@ -31,3 +31,7 @@ The cost is that the new test needs a real compiler and so skips where none is i
 ## Verification
 
 With the fix reverted, the new test fails with `TypeError: ts.isExportEquals is not a function` at [line 273](../../../../templates/typescript/scripts/gates/verify-typescript-doc-comments.mjs); with it in place, `npm test` and `npm run check` pass.
+
+## Related
+
+Partially supersedes [The dogfood run exercises every gate](../process/2026-09-17-the-dogfood-run-exercises-every-gate.md). That record assigned the TypeScript analysis to the stack tests because the dogfood run ships no compiler; the test added here is what carries it there now, and the coverage sentence in that record is corrected in place rather than superseded outright.
