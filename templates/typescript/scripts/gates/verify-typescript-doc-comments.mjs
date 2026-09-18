@@ -270,7 +270,7 @@ function walkStatements(ts, statements, ambient, local, report) {
 
     if (ts.isExportAssignment(statement)) {
       if (documented(ts, statement)) continue
-      const kind = ts.isExportEquals(statement) ? 'export=' : 'default'
+      const kind = statement.isExportEquals === true ? 'export=' : 'default'
       report(statement, kind, exportAssignmentName(ts, statement))
       continue
     }
