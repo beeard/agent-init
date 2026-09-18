@@ -9,6 +9,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { existsSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { removeSandbox, runGate, scaffold, PACKAGE_ROOT } from './helpers.mjs'
@@ -46,8 +47,17 @@ function typescriptPackage() {
   // package-local candidate needs that segment appended.
   const candidates = [join(PACKAGE_ROOT, 'node_modules', 'typescript')]
   if (globalRoot.status === 0 && globalRoot.stdout.trim() !== '') candidates.push(join(globalRoot.stdout.trim(), 'typescript'))
+  const require = createRequire(import.meta.url)
   for (const dir of candidates) {
-    if (existsSync(join(dir, 'package.json'))) return dir
+    if (!existsSync(join(dir, 'package.json'))) continue
+    try {
+      // TypeScript 7 exports only its version from the package root, so a
+      // package without the compiler API is not one the gate can analyze with;
+      // keep looking rather than linking a compiler it will refuse.
+      if (typeof require(dir).createSourceFile === 'function') return dir
+    } catch {
+      // Unreadable or unusable: the next candidate may still work.
+    }
   }
   return null
 }
@@ -173,7 +183,7 @@ test('typescript: a missing compiler fails loud with the install command', () =>
   }
 })
 
-test('typescript: an export assignment is reported, not a crash', { skip: TYPESCRIPT === null && 'typescript is not installed' }, () => {
+test('typescript: an export assignment is reported, not a crash', { skip: TYPESCRIPT === null && 'no typescript with the compiler API is installed' }, () => {
   const repo = scaffold(['--name', 'demo', '--stack', 'typescript', '--no-hooks'])
   try {
     mkdirSync(join(repo, 'node_modules'), { recursive: true })

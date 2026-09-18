@@ -59,7 +59,16 @@ function loadCompiler(root) {
   // install and a package-local one both resolve.
   const require = createRequire(join(root, 'package.json'))
   try {
-    return { ts: require('typescript'), error: null }
+    const ts = require('typescript')
+    // TypeScript 7's package root exports only its version — the compiler API
+    // moved behind `unstable/*` subpaths — so a module without `createSourceFile`
+    // is one this gate cannot analyze with. Reporting it here keeps the failure
+    // at the load, where it names the problem, instead of deep inside the walk,
+    // where it surfaced as a TypeError on the first file.
+    if (ts === null || typeof ts !== 'object' || typeof ts.createSourceFile !== 'function') {
+      return { ts: null, error: 'the typescript package does not expose the compiler API' }
+    }
+    return { ts, error: null }
   } catch (error) {
     // A missing install and a broken one leave the gate equally unable to
     // analyze a file, so both are reported rather than distinguished.
