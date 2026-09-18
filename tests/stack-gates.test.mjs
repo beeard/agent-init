@@ -9,7 +9,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { existsSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { removeSandbox, runGate, scaffold, PACKAGE_ROOT } from './helpers.mjs'
 
@@ -26,6 +27,42 @@ function available(command, args) {
 
 const HAS_GO = available('go', ['version'])
 const HAS_CARGO = available('cargo', ['--version'])
+
+/**
+ * The TypeScript compiler's package directory, when one is installed where a
+ * test can reach it.
+ *
+ * `verify-typescript-doc-comments` reads the compiler from the repository it
+ * judges, so a sandbox needs a real one linked into its `node_modules`; a stub
+ * cannot parse a syntax tree. Continuous integration installs TypeScript
+ * globally for exactly that reason, and a developer machine may have it in this
+ * package's own `node_modules` instead. Neither is required, so a test that
+ * needs it skips rather than failing where both are absent.
+ *
+ * @returns Absolute path to a `typescript` package directory, or null.
+ */
+function typescriptPackage() {
+  const globalRoot = spawnSync('npm', ['root', '--global'], { encoding: 'utf8' })
+  // `npm root --global` already names a `node_modules` directory, so only the
+  // package-local candidate needs that segment appended.
+  const candidates = [join(PACKAGE_ROOT, 'node_modules', 'typescript')]
+  if (globalRoot.status === 0 && globalRoot.stdout.trim() !== '') candidates.push(join(globalRoot.stdout.trim(), 'typescript'))
+  const require = createRequire(import.meta.url)
+  for (const dir of candidates) {
+    if (!existsSync(join(dir, 'package.json'))) continue
+    try {
+      // TypeScript 7 exports only its version from the package root, so a
+      // package without the compiler API is not one the gate can analyze with;
+      // keep looking rather than linking a compiler it will refuse.
+      if (typeof require(dir).createSourceFile === 'function') return dir
+    } catch {
+      // Unreadable or unusable: the next candidate may still work.
+    }
+  }
+  return null
+}
+
+const TYPESCRIPT = typescriptPackage()
 
 /**
  * Write a file into a scaffolded repository.
@@ -141,6 +178,28 @@ test('typescript: a missing compiler fails loud with the install command', () =>
     assert.equal(result.code, 1)
     assert.match(result.output, /cannot load the TypeScript compiler/u)
     assert.match(result.output, /npm install --save-dev typescript/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('typescript: an export assignment is reported, not a crash', { skip: TYPESCRIPT === null && 'no typescript with the compiler API is installed' }, () => {
+  const repo = scaffold(['--name', 'demo', '--stack', 'typescript', '--no-hooks'])
+  try {
+    mkdirSync(join(repo, 'node_modules'), { recursive: true })
+    symlinkSync(TYPESCRIPT, join(repo, 'node_modules', 'typescript'), 'dir')
+
+    // `export default` and `export =` reach the same branch; before the fix the
+    // gate called a `ts.isExportEquals` that does not exist and died with a
+    // TypeError instead of reporting either.
+    write(repo, 'src/provider.ts', 'const provider = { id: "demo" }\n\nexport default provider\n')
+    const reported = runGate(repo, 'verify-typescript-doc-comments.mjs')
+    assert.equal(reported.code, 1, reported.output)
+    assert.match(reported.output, /default provider/u)
+    assert.doesNotMatch(reported.output, /TypeError/u)
+
+    write(repo, 'src/provider.ts', 'const provider = { id: "demo" }\n\n/** The provider this module exports. */\nexport default provider\n')
+    assert.equal(runGate(repo, 'verify-typescript-doc-comments.mjs').code, 0)
   } finally {
     removeSandbox(repo)
   }
