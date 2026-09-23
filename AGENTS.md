@@ -41,7 +41,7 @@ npm run check
 
 That check applies every layer combination — base alone, each stack alone, architecture alone, and every stack with architecture — through the real scaffolder into throwaway directories, and runs the shipped gates on the result. If a template would fail the gates in a fresh repository, it fails here first. **A change that makes `npm run check` fail is a defect in the product**, not in the check.
 
-The combinations matter: a layer checked alone passes trivially, because a layer is a partial overlay whose links are written for the composed tree. Only the composed result is what a receiving repository gets.
+The combinations matter: a layer checked alone passes trivially, because a layer is a partial overlay whose links are written for the composed tree. A receiving repository gets only the composed result.
 
 The matrix is derived from `STACKS`, so registering a stack there is enough to put it under the check. `buildPlan` fails loud when a declared layer contributes no files, and a test asserts every `STACKS` entry has a template directory — a name without templates would otherwise scaffold a base-only tree and report success.
 
@@ -52,8 +52,9 @@ Every non-trivial change adds or updates a decision record in the same change �
 ## Checks
 
 ```sh
-npm test         # scaffolding behaviour, and one negative control per gate
-npm run check    # the shipped gates, against every composed layer combination
+npm test              # scaffolding behaviour, and one negative control per gate
+npm run check         # the shipped gates, against every composed layer combination
+npm run format:check  # Prettier layout
 ```
 
-Both must pass before a change is reported as done. Report the actual result, including a failure.
+All three must pass before a change is reported as done; report the actual result, failures included.

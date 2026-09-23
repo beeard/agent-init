@@ -61,3 +61,8 @@ jobs:
 
       - name: The shipped gates, against every composed layer combination
         run: npm run check
+
+      # The edit hook in .claude/ formats as an agent writes; this is the same
+      # rule enforced for every change, however it was written.
+      - name: The JavaScript and YAML are in Prettier's layout
+        run: npm run format:check
