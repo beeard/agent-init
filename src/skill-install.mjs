@@ -116,12 +116,25 @@ export function linkPath(source, target, dryRun = false) {
 
 /**
  * Copy a directory to `target`, keeping whatever was there.
+ *
+ * A symlink at `target` — a previous `--link` install, or one left dangling —
+ * is not a copy, however current the file it leads to, so it is replaced by
+ * one. The link itself is removed without a backup, for the reason
+ * `linkPath` gives: renaming a link moves only the path it holds.
+ *
  * @param source - Absolute source directory.
  * @param target - Absolute destination path.
  * @param dryRun - Report without touching the filesystem.
  * @returns Outcome of `fresh`, `current`, or `replaced`, with `backup`.
  */
 export function copyPath(source, target, dryRun = false) {
+  if (isSymlink(target)) {
+    if (!dryRun) {
+      unlinkSync(target)
+      cpSync(source, target, { recursive: true })
+    }
+    return { outcome: 'replaced', backup: null }
+  }
   const skillFile = join(target, 'SKILL.md')
   if (existsSync(skillFile)) {
     // A copy that already matches is the common second run, and rewriting it
