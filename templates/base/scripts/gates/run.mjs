@@ -75,7 +75,7 @@ export function selectGates(gates, group) {
  * @returns Exit code, combined output, and any spawn error.
  */
 function runGate(root, script, args, { env = process.env, maxBuffer = MAX_GATE_OUTPUT } = {}) {
-  return new Promise((settle) => {
+  return new Promise(settle => {
     const child = spawn(process.execPath, [resolve(root, 'scripts', 'gates', script), ...args], {
       cwd: root,
       env,
@@ -85,7 +85,7 @@ function runGate(root, script, args, { env = process.env, maxBuffer = MAX_GATE_O
     const stderr = []
     let size = 0
     let error
-    const collect = sink => (chunk) => {
+    const collect = sink => chunk => {
       if (error !== undefined) return
       size += chunk.length
       if (size > maxBuffer) {
@@ -97,13 +97,14 @@ function runGate(root, script, args, { env = process.env, maxBuffer = MAX_GATE_O
     }
     child.stdout.on('data', collect(stdout))
     child.stderr.on('data', collect(stderr))
-    const finish = code => settle({
-      code: code ?? 1,
-      output: `${Buffer.concat(stdout).toString('utf8')}${Buffer.concat(stderr).toString('utf8')}`.trimEnd(),
-      error,
-    })
+    const finish = code =>
+      settle({
+        code: code ?? 1,
+        output: `${Buffer.concat(stdout).toString('utf8')}${Buffer.concat(stderr).toString('utf8')}`.trimEnd(),
+        error,
+      })
     // A child that never started emits no `close` to wait for.
-    child.on('error', (spawnError) => {
+    child.on('error', spawnError => {
       error ??= spawnError
       if (child.pid === undefined) finish(null)
     })
@@ -248,7 +249,7 @@ export async function runGates(root, group, { maxBuffer = MAX_GATE_OUTPUT, jobs 
 async function main() {
   let values
   try {
-    ({ values } = parseArgs({
+    ;({ values } = parseArgs({
       args: process.argv.slice(2),
       allowPositionals: false,
       options: {

@@ -32,10 +32,7 @@
 
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import {
-  REPOSITORY_SKIP_DIRECTORIES, collectFiles, corpusSkipPredicate,
-  isMain, readConfig, stagedSources, stagedSubset,
-} from './lib/repo-files.mjs'
+import { REPOSITORY_SKIP_DIRECTORIES, collectFiles, corpusSkipPredicate, isMain, readConfig, stagedSources, stagedSubset } from './lib/repo-files.mjs'
 
 const ROOT = resolve(import.meta.dirname, '..', '..')
 
@@ -44,10 +41,7 @@ const ROOT = resolve(import.meta.dirname, '..', '..')
  * the JavaScript family and shell. A repository working in a language this list
  * does not name adds its extension here; it owns this file.
  */
-const CODE_GLOBS = [
-  '**/*.mjs', '**/*.js', '**/*.cjs', '**/*.ts', '**/*.tsx', '**/*.mts', '**/*.cts',
-  '**/*.py', '**/*.go', '**/*.rs', '**/*.sh',
-]
+const CODE_GLOBS = ['**/*.mjs', '**/*.js', '**/*.cjs', '**/*.ts', '**/*.tsx', '**/*.mts', '**/*.cts', '**/*.py', '**/*.go', '**/*.rs', '**/*.sh']
 
 /** Urgency order, most urgent first, which is the order the report uses. */
 const URGENCY = ['FIXME', 'TODO', 'XXX']
@@ -147,9 +141,7 @@ function main() {
   }
 
   const counts = URGENCY.map(tag => `${tag} ${markers.filter(found => found.tag === tag).length}`).join(', ')
-  const summary = markers.length === 0
-    ? `no known-issue markers.`
-    : `${markers.length} marker(s) — ${counts}.`
+  const summary = markers.length === 0 ? `no known-issue markers.` : `${markers.length} marker(s) — ${counts}.`
   console.log(`verify-issue-tags: ${checked} file(s) checked, ${summary}`)
   return 0
 }

@@ -14,9 +14,7 @@ import { join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /** Build and dependency directories every gate skips, named or not. */
-export const REPOSITORY_SKIP_DIRECTORIES = [
-  'node_modules', 'dist', 'build', 'target', 'vendor', 'coverage', '.git',
-]
+export const REPOSITORY_SKIP_DIRECTORIES = ['node_modules', 'dist', 'build', 'target', 'vendor', 'coverage', '.git']
 
 /**
  * Whether a gate module is the process entry point rather than an import.
@@ -77,11 +75,10 @@ function splitPattern(pattern) {
  * @returns A function listing a directory's entries, minus the pruned ones.
  */
 function directoryReader({ prune = new Set(), cache = new Map() } = {}) {
-  return (dirAbs) => {
+  return dirAbs => {
     let entries = cache.get(dirAbs)
     if (entries === undefined) {
-      entries = readdirSync(dirAbs, { withFileTypes: true })
-        .filter(entry => !(entry.isDirectory() && prune.has(entry.name)))
+      entries = readdirSync(dirAbs, { withFileTypes: true }).filter(entry => !(entry.isDirectory() && prune.has(entry.name)))
       cache.set(dirAbs, entries)
     }
     return entries
@@ -279,7 +276,11 @@ export function corpusSkipPredicate(root, config, defaultDirectories = []) {
   const excluded = new Set([...defaultDirectories, ...declaredSkipDirectories(config)])
   const inSharedSkip = skipPredicate(root, config.skipGlobs ?? [])
   const predicate = relPath =>
-    inSharedSkip(relPath) || relPath.split('/').slice(0, -1).some(segment => excluded.has(segment))
+    inSharedSkip(relPath) ||
+    relPath
+      .split('/')
+      .slice(0, -1)
+      .some(segment => excluded.has(segment))
   predicate.directories = excluded
   return predicate
 }
@@ -290,9 +291,10 @@ export function corpusSkipPredicate(root, config, defaultDirectories = []) {
  * @returns Staged paths, or null when Git cannot answer.
  */
 export function stagedSources(root) {
-  const result = spawnSync('git', [
-    '-C', root, 'diff', '--cached', '--name-only', '--diff-filter=ACMR', '-z', '--',
-  ], { encoding: 'buffer', maxBuffer: 64 * 1024 * 1024 })
+  const result = spawnSync('git', ['-C', root, 'diff', '--cached', '--name-only', '--diff-filter=ACMR', '-z', '--'], {
+    encoding: 'buffer',
+    maxBuffer: 64 * 1024 * 1024,
+  })
   if (result.status !== 0) return null
   return result.stdout.toString('utf8').split('\0').filter(Boolean)
 }
@@ -315,7 +317,7 @@ export function stagedSubset(corpus, staged) {
     byPath.set(file.relPath, file)
     byPath.set(file.realPath ?? file.relPath, file)
   }
-  return staged.flatMap((relPath) => {
+  return staged.flatMap(relPath => {
     const file = byPath.get(relPath)
     return file === undefined ? [] : [file]
   })

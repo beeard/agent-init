@@ -99,10 +99,10 @@ function parsePathSet(output, context) {
  * @returns Repository-relative paths.
  */
 function diffPaths(root, args, context) {
-  return parsePathSet(requireBytes(root, [
-    'diff', '--no-ext-diff', '--no-textconv', '--no-renames',
-    '--ignore-submodules=none', '--name-only', '-z', ...args, '--',
-  ], context), context)
+  return parsePathSet(
+    requireBytes(root, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--ignore-submodules=none', '--name-only', '-z', ...args, '--'], context),
+    context,
+  )
 }
 
 /**

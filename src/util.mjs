@@ -67,7 +67,7 @@ export function stripJsonComments(input) {
    * The one scanner both trivia skipping and the main loop use, so the two
    * cannot drift on how a comment ends.
    */
-  const skipComment = (at) => {
+  const skipComment = at => {
     if (input[at] !== '/') return -1
     if (input[at + 1] === '/') {
       let cursor = at + 2
@@ -83,7 +83,7 @@ export function stripJsonComments(input) {
   }
 
   /** Index just past the next run of whitespace and comments. */
-  const skipTrivia = (from) => {
+  const skipTrivia = from => {
     let at = from
     for (;;) {
       while (at < length && /\s/u.test(input[at])) at += 1
@@ -165,8 +165,7 @@ export function writeText(path, content) {
  * @returns The substituted text; unknown tokens are left untouched.
  */
 export function substitute(input, variables) {
-  return input.replace(/\{\{([A-Z_]+)\}\}/gu, (match, token) =>
-    Object.hasOwn(variables, token) ? variables[token] : match)
+  return input.replace(/\{\{([A-Z_]+)\}\}/gu, (match, token) => (Object.hasOwn(variables, token) ? variables[token] : match))
 }
 
 /**

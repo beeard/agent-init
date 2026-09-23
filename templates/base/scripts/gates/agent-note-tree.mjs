@@ -95,7 +95,7 @@ export function walkAgentNoteTree(root) {
  */
 function listMarkdown(base, sub) {
   const out = []
-  const visit = (rel) => {
+  const visit = rel => {
     let entries
     try {
       entries = readdirSync(resolve(base, rel), { withFileTypes: true })

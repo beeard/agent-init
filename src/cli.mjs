@@ -64,10 +64,7 @@ Options
  * `--stack python` and installed a skill would report success for work it never
  * did.
  */
-const SCAFFOLD_ONLY = [
-  'name', 'skills', 'stack', 'with-architecture', 'lenient', 'no-hooks',
-  'force', 'allow-non-git',
-]
+const SCAFFOLD_ONLY = ['name', 'skills', 'stack', 'with-architecture', 'lenient', 'no-hooks', 'force', 'allow-non-git']
 
 /**
  * Parse command-line arguments.
@@ -120,9 +117,13 @@ function parseCli(argv) {
 
   if (positionals.length > 1) throw new Error(`expected at most one target directory, got ${positionals.length}`)
   const target = resolve(positionals[0] ?? process.cwd())
-  const chosen = values.skills === undefined
-    ? BASE_SKILLS
-    : values.skills.split(',').map(part => part.trim()).filter(Boolean)
+  const chosen =
+    values.skills === undefined
+      ? BASE_SKILLS
+      : values.skills
+          .split(',')
+          .map(part => part.trim())
+          .filter(Boolean)
   if (chosen.length === 0) {
     throw new Error(`no skills selected; available: ${BASE_SKILLS.join(', ')}, all`)
   }
@@ -172,8 +173,7 @@ function isGitWorktree(dir) {
  */
 function renderReport(report, dryRun) {
   const width = Math.max(...report.results.map(r => r.relPath.length), 8)
-  const lines = report.results.map((r) =>
-    `  ${r.outcome.padEnd(9)} ${r.relPath.padEnd(width)}${r.detail ? `  ${r.detail}` : ''}`)
+  const lines = report.results.map(r => `  ${r.outcome.padEnd(9)} ${r.relPath.padEnd(width)}${r.detail ? `  ${r.detail}` : ''}`)
   if (report.notes.length > 0) lines.push('', ...report.notes.map(n => `  note: ${n}`))
   if (dryRun) lines.push('', '  dry run: nothing was written.')
   return lines.join('\n')
@@ -205,9 +205,7 @@ function givenOption(key, values, positionals) {
  * @returns Human-readable lines.
  */
 function renderSkillReport(report, dryRun) {
-  const detail = report.outcome === 'linked' || report.outcome === 'relinked'
-    ? ` -> ${report.linkTarget}`
-    : ''
+  const detail = report.outcome === 'linked' || report.outcome === 'relinked' ? ` -> ${report.linkTarget}` : ''
   const lines = [`  ${report.outcome.padEnd(9)} ${report.target}${detail}`]
   if (report.backup !== null) lines.push(`  ${'backed up'.padEnd(9)} ${report.backup}`)
   if (report.coordinate.path !== null) {
@@ -285,8 +283,8 @@ function main(argv) {
   }
   if (!options.allowNonGit && !isGitWorktree(options.target)) {
     process.stderr.write(
-      `agent-init: ${options.target} is not inside a Git worktree.\n`
-      + '  Run `git init` first, or pass --allow-non-git to scaffold anyway.\n')
+      `agent-init: ${options.target} is not inside a Git worktree.\n` + '  Run `git init` first, or pass --allow-non-git to scaffold anyway.\n',
+    )
     return 2
   }
 
@@ -312,9 +310,11 @@ function main(argv) {
     // described as untouched would be a second false report on top of the
     // first.
     process.stderr.write(`agent-init: ${error instanceof Error ? error.message : String(error)}\n`)
-    process.stderr.write(plan === undefined || error?.written === false
-      ? `  Nothing was written to ${options.target}.\n`
-      : `  Nothing further was written to ${options.target}; files written before the conflict are kept.\n`)
+    process.stderr.write(
+      plan === undefined || error?.written === false
+        ? `  Nothing was written to ${options.target}.\n`
+        : `  Nothing further was written to ${options.target}; files written before the conflict are kept.\n`,
+    )
     return 2
   }
 

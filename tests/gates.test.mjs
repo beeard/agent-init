@@ -24,15 +24,12 @@ import { gitConfigEnv, removeSandbox, runGate, runSuite, scaffold, PACKAGE_ROOT 
  * @returns The number of gates in that group.
  */
 function registeredGates(group) {
-  const manifest = JSON.parse(
-    readFileSync(join(PACKAGE_ROOT, 'templates', 'base', 'scripts', 'gates', 'gates.json'), 'utf8'),
-  )
+  const manifest = JSON.parse(readFileSync(join(PACKAGE_ROOT, 'templates', 'base', 'scripts', 'gates', 'gates.json'), 'utf8'))
   return Object.values(manifest).filter(entry => entry.groups.includes(group)).length
 }
 
 /** Whether an interpreter the python gate would find is on `PATH`. */
-const HAS_PYTHON = ['python3', 'python'].some(candidate =>
-  spawnSync(candidate, ['-c', 'import ast'], { encoding: 'utf8' }).status === 0)
+const HAS_PYTHON = ['python3', 'python'].some(candidate => spawnSync(candidate, ['-c', 'import ast'], { encoding: 'utf8' }).status === 0)
 
 /** A well-formed implemented record, used as the baseline every mutation breaks. */
 const GOOD_RECORD = `# Decision Record: A settled question
@@ -92,7 +89,7 @@ function stageAll(repo) {
 }
 
 test('a freshly scaffolded repository passes every gate', () => {
-  withRepo({ args: ['--with-architecture'] }, (repo) => {
+  withRepo({ args: ['--with-architecture'] }, repo => {
     const result = runSuite(repo)
     assert.equal(result.code, 0, result.output)
     assert.match(result.output, new RegExp(`\\b${registeredGates('full')} gate\\(s\\) passed`, 'u'))
@@ -100,7 +97,7 @@ test('a freshly scaffolded repository passes every gate', () => {
 })
 
 test('the commit group runs a strict subset', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     stageAll(repo)
     const result = runSuite(repo, 'commit')
     assert.equal(result.code, 0, result.output)
@@ -111,15 +108,14 @@ test('the commit group runs a strict subset', () => {
 })
 
 test('a well-formed implemented record passes', () => {
-  withRepo({ mutate: repo => writeRecord(repo, 'implemented/architecture/2026-01-01-good.md', GOOD_RECORD) },
-    (repo) => {
-      assert.equal(runGate(repo, 'verify-agent-note-format.mjs').code, 0)
-      assert.equal(runGate(repo, 'agent-note-tree.mjs').code, 0)
-    })
+  withRepo({ mutate: repo => writeRecord(repo, 'implemented/architecture/2026-01-01-good.md', GOOD_RECORD) }, repo => {
+    assert.equal(runGate(repo, 'verify-agent-note-format.mjs').code, 0)
+    assert.equal(runGate(repo, 'agent-note-tree.mjs').code, 0)
+  })
 })
 
 test('a record in an unknown class folder is rejected', () => {
-  withRepo({ mutate: repo => writeRecord(repo, 'implemented/bogus/2026-01-01-x.md', GOOD_RECORD) }, (repo) => {
+  withRepo({ mutate: repo => writeRecord(repo, 'implemented/bogus/2026-01-01-x.md', GOOD_RECORD) }, repo => {
     const result = runGate(repo, 'agent-note-tree.mjs')
     assert.equal(result.code, 1)
     assert.match(result.output, /unknown class folder "bogus"/u)
@@ -127,7 +123,7 @@ test('a record in an unknown class folder is rejected', () => {
 })
 
 test('a record with a bad filename is rejected', () => {
-  withRepo({ mutate: repo => writeRecord(repo, 'implemented/architecture/no-date.md', GOOD_RECORD) }, (repo) => {
+  withRepo({ mutate: repo => writeRecord(repo, 'implemented/architecture/no-date.md', GOOD_RECORD) }, repo => {
     const result = runGate(repo, 'agent-note-tree.mjs')
     assert.equal(result.code, 1)
     assert.match(result.output, /filename must be yyyy-mm-dd-topic\.md/u)
@@ -135,7 +131,7 @@ test('a record with a bad filename is rejected', () => {
 })
 
 test('a record outside a lifecycle/class layout is rejected', () => {
-  withRepo({ mutate: repo => writeRecord(repo, 'implemented/2026-01-01-flat.md', GOOD_RECORD) }, (repo) => {
+  withRepo({ mutate: repo => writeRecord(repo, 'implemented/2026-01-01-flat.md', GOOD_RECORD) }, repo => {
     const result = runGate(repo, 'agent-note-tree.mjs')
     assert.equal(result.code, 1)
     assert.match(result.output, /expected \{lifecycle\}\/\{class\}\/file\.md/u)
@@ -144,36 +140,33 @@ test('a record outside a lifecycle/class layout is rejected', () => {
 
 test('a record with no alternatives section is rejected', () => {
   const withoutAlternatives = GOOD_RECORD.replace(/## Alternatives considered\n\n\*\*Do nothing\.\*\*[^\n]*\n\n/u, '')
-  withRepo({ mutate: repo => writeRecord(repo, 'implemented/architecture/2026-01-01-good.md', withoutAlternatives) },
-    (repo) => {
-      const result = runGate(repo, 'verify-agent-note-format.mjs')
-      assert.equal(result.code, 1)
-      assert.match(result.output, /missing `## Alternatives considered`/u)
-    })
+  withRepo({ mutate: repo => writeRecord(repo, 'implemented/architecture/2026-01-01-good.md', withoutAlternatives) }, repo => {
+    const result = runGate(repo, 'verify-agent-note-format.mjs')
+    assert.equal(result.code, 1)
+    assert.match(result.output, /missing `## Alternatives considered`/u)
+  })
 })
 
 test('a proposal-era heading in an implemented record is rejected', () => {
   const withProposal = GOOD_RECORD.replace('## Decision', '## Proposal')
-  withRepo({ mutate: repo => writeRecord(repo, 'implemented/architecture/2026-01-01-good.md', withProposal) },
-    (repo) => {
-      const result = runGate(repo, 'verify-agent-note-format.mjs')
-      assert.equal(result.code, 1)
-      assert.match(result.output, /proposal-era heading/u)
-    })
+  withRepo({ mutate: repo => writeRecord(repo, 'implemented/architecture/2026-01-01-good.md', withProposal) }, repo => {
+    const result = runGate(repo, 'verify-agent-note-format.mjs')
+    assert.equal(result.code, 1)
+    assert.match(result.output, /proposal-era heading/u)
+  })
 })
 
 test('a status that disagrees with its folder is rejected', () => {
   const wrongStatus = GOOD_RECORD.replace('Status: implemented', 'Status: proposed')
-  withRepo({ mutate: repo => writeRecord(repo, 'implemented/architecture/2026-01-01-good.md', wrongStatus) },
-    (repo) => {
-      const result = runGate(repo, 'verify-agent-note-format.mjs')
-      assert.equal(result.code, 1)
-      assert.match(result.output, /line 3 must match the implemented status grammar/u)
-    })
+  withRepo({ mutate: repo => writeRecord(repo, 'implemented/architecture/2026-01-01-good.md', wrongStatus) }, repo => {
+    const result = runGate(repo, 'verify-agent-note-format.mjs')
+    assert.equal(result.code, 1)
+    assert.match(result.output, /line 3 must match the implemented status grammar/u)
+  })
 })
 
 test('a rejected record without a reason is rejected', () => {
-  withRepo({ mutate: repo => writeRecord(repo, 'rejected/architecture/2026-01-01-x.md', GOOD_RECORD) }, (repo) => {
+  withRepo({ mutate: repo => writeRecord(repo, 'rejected/architecture/2026-01-01-x.md', GOOD_RECORD) }, repo => {
     const result = runGate(repo, 'verify-agent-note-format.mjs')
     assert.equal(result.code, 1)
     assert.match(result.output, /line 3 must match the rejected status grammar/u)
@@ -181,7 +174,7 @@ test('a rejected record without a reason is rejected', () => {
 })
 
 test('a hard-wrapped paragraph is rejected', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     writeFileSync(join(repo, 'docs', 'wrapped.md'), '# Title\n\nFirst line\nsecond line of the same paragraph.\n', 'utf8')
     const result = runGate(repo, 'verify-md-wrap.mjs')
     assert.equal(result.code, 1)
@@ -190,7 +183,7 @@ test('a hard-wrapped paragraph is rejected', () => {
 })
 
 test('a multi-line list item is rejected', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     writeFileSync(join(repo, 'docs', 'list.md'), '# Title\n\n- an item that wraps\n  onto a continuation line\n', 'utf8')
     const result = runGate(repo, 'verify-md-wrap.mjs')
     assert.equal(result.code, 1)
@@ -199,42 +192,40 @@ test('a multi-line list item is rejected', () => {
 })
 
 test('consecutive list items are accepted', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     writeFileSync(join(repo, 'docs', 'list.md'), '# Title\n\n- first item\n- second item\n- third item\n', 'utf8')
     assert.equal(runGate(repo, 'verify-md-wrap.mjs').code, 0)
   })
 })
 
 test('a fenced code block may span lines freely', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     writeFileSync(join(repo, 'docs', 'code.md'), '# Title\n\n```sh\nfirst\nsecond\n```\n', 'utf8')
     assert.equal(runGate(repo, 'verify-md-wrap.mjs').code, 0)
   })
 })
 
 test('--staged checks only staged files', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     // A pre-existing violation, committed before the hook existed, must not
     // block an unrelated staged change.
     writeFileSync(join(repo, 'docs', 'old.md'), '# Title\n\nalready wrapped\nacross two lines.\n', 'utf8')
     assert.equal(spawnSync('git', ['-C', repo, 'add', '-A'], { encoding: 'utf8' }).status, 0)
-    const staged = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-md-wrap.mjs'), '--staged'],
-      { cwd: repo, encoding: 'utf8' })
+    const staged = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-md-wrap.mjs'), '--staged'], { cwd: repo, encoding: 'utf8' })
     assert.equal(staged.status, 1, 'the staged file is itself a violation')
     assert.match(`${staged.stdout}${staged.stderr}`, /docs\/old\.md:4/u)
 
     assert.equal(spawnSync('git', ['-C', repo, 'reset', '-q'], { encoding: 'utf8' }).status, 0)
     writeFileSync(join(repo, 'docs', 'clean.md'), '# Title\n\none line only\n', 'utf8')
     assert.equal(spawnSync('git', ['-C', repo, 'add', 'docs/clean.md'], { encoding: 'utf8' }).status, 0)
-    const clean = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-md-wrap.mjs'), '--staged'],
-      { cwd: repo, encoding: 'utf8' })
+    const clean = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-md-wrap.mjs'), '--staged'], { cwd: repo, encoding: 'utf8' })
     assert.equal(clean.status, 0, clean.stdout + clean.stderr)
     assert.match(clean.stdout, /1 file\(s\) checked/u)
   })
 })
 
 test('a broken relative link is rejected', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     writeFileSync(join(repo, 'docs', 'link.md'), '# Title\n\n[gone](nope.md)\n', 'utf8')
     const result = runGate(repo, 'verify-md-links.mjs')
     assert.equal(result.code, 1)
@@ -243,22 +234,21 @@ test('a broken relative link is rejected', () => {
 })
 
 test('external links and bare anchors are accepted', () => {
-  withRepo({}, (repo) => {
-    writeFileSync(join(repo, 'docs', 'link.md'),
-      '# Title\n\n[web](https://example.com/x)\n[local](#title)\n[mail](mailto:a@b.c)\n', 'utf8')
+  withRepo({}, repo => {
+    writeFileSync(join(repo, 'docs', 'link.md'), '# Title\n\n[web](https://example.com/x)\n[local](#title)\n[mail](mailto:a@b.c)\n', 'utf8')
     assert.equal(runGate(repo, 'verify-md-links.mjs').code, 0)
   })
 })
 
 test('a link with a fragment resolves on its path alone', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     writeFileSync(join(repo, 'docs', 'link.md'), '# Title\n\n[here](AGENTS.md#anything)\n', 'utf8')
     assert.equal(runGate(repo, 'verify-md-links.mjs').code, 0)
   })
 })
 
 test('a document over its ceiling is rejected', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     const filler = Array.from({ length: 900 }, (_, i) => `word${i}`).join(' ')
     writeFileSync(join(repo, 'docs', 'fat.md'), `# Title\n\n${filler}\n`, 'utf8')
     const manifestPath = join(repo, 'scripts', 'gates', 'doc-budgets.manifest.json')
@@ -272,7 +262,7 @@ test('a document over its ceiling is rejected', () => {
 })
 
 test('a budgeted document that vanished is rejected', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     unlinkSync(join(repo, 'docs', 'AGENTS.md'))
     const result = runGate(repo, 'verify-doc-budgets.mjs')
     assert.equal(result.code, 1)
@@ -281,9 +271,12 @@ test('a budgeted document that vanished is rejected', () => {
 })
 
 test('an archived record is skipped by every documentation gate', () => {
-  withRepo({}, (repo) => {
-    writeRecord(repo, 'archived/architecture/2025-01-01-old.md',
-      '# Decision Record: Old\n\nStatus: implemented\n\nA wrapped line\ncontinues here, and the link [is dead](nowhere.md).\n')
+  withRepo({}, repo => {
+    writeRecord(
+      repo,
+      'archived/architecture/2025-01-01-old.md',
+      '# Decision Record: Old\n\nStatus: implemented\n\nA wrapped line\ncontinues here, and the link [is dead](nowhere.md).\n',
+    )
     assert.equal(runGate(repo, 'verify-md-wrap.mjs').code, 0)
     assert.equal(runGate(repo, 'verify-md-links.mjs').code, 0)
     assert.equal(runSuite(repo).code, 0)
@@ -291,7 +284,7 @@ test('an archived record is skipped by every documentation gate', () => {
 })
 
 test('a centralized index is rejected', () => {
-  withRepo({ mutate: repo => writeFileSync(join(repo, '.agents', 'notes', 'INDEX.md'), '# Index\n', 'utf8') }, (repo) => {
+  withRepo({ mutate: repo => writeFileSync(join(repo, '.agents', 'notes', 'INDEX.md'), '# Index\n', 'utf8') }, repo => {
     const result = runGate(repo, 'agent-note-tree.mjs')
     assert.equal(result.code, 1)
     assert.match(result.output, /INDEX\.md/u)
@@ -299,12 +292,11 @@ test('a centralized index is rejected', () => {
 })
 
 test('only the allowlisted files may sit at a lifecycle root', () => {
-  withRepo({ mutate: repo => writeFileSync(join(repo, '.agents', 'notes', 'implemented', 'NOTES.md'), '# x\n', 'utf8') },
-    (repo) => {
-      const result = runGate(repo, 'agent-note-tree.mjs')
-      assert.equal(result.code, 1)
-      assert.match(result.output, /expected \{lifecycle\}\/\{class\}\/file\.md/u)
-    })
+  withRepo({ mutate: repo => writeFileSync(join(repo, '.agents', 'notes', 'implemented', 'NOTES.md'), '# x\n', 'utf8') }, repo => {
+    const result = runGate(repo, 'agent-note-tree.mjs')
+    assert.equal(result.code, 1)
+    assert.match(result.output, /expected \{lifecycle\}\/\{class\}\/file\.md/u)
+  })
 })
 
 /** A documented Python module, the baseline every Python mutation breaks. */
@@ -401,8 +393,11 @@ test('a leading underscore makes a definition private', { skip: !HAS_PYTHON && '
 test('an overload stub without a docstring is exempt', { skip: !HAS_PYTHON && 'python is not installed' }, () => {
   const repo = scaffoldPython()
   try {
-    writePython(repo, 'pkg/over.py',
-      '"""Doc."""\n\nfrom typing import overload\n\n\n@overload\ndef parse(value: int) -> int: ...\n\n\ndef parse(value):\n    """Parse."""\n    return value\n')
+    writePython(
+      repo,
+      'pkg/over.py',
+      '"""Doc."""\n\nfrom typing import overload\n\n\n@overload\ndef parse(value: int) -> int: ...\n\n\ndef parse(value):\n    """Parse."""\n    return value\n',
+    )
     assert.equal(runGate(repo, 'verify-python-docstrings.mjs').code, 0)
   } finally {
     removeSandbox(repo)
@@ -450,7 +445,10 @@ test('--lenient marks every gate advisory', () => {
   const repo = scaffold(['--name', 'demo', '--stack', 'python', '--lenient'])
   try {
     const gates = JSON.parse(readFileSync(join(repo, 'scripts/gates/gates.json'), 'utf8'))
-    assert.equal(Object.values(gates).every(gate => gate.advisory === true), true)
+    assert.equal(
+      Object.values(gates).every(gate => gate.advisory === true),
+      true,
+    )
   } finally {
     removeSandbox(repo)
   }
@@ -488,7 +486,7 @@ test('the python and architecture layers both reach AGENTS.md', () => {
 })
 
 test('a file without a trailing newline is rejected', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     writeFileSync(join(repo, 'docs', 'bare.md'), '# Title\n\nno newline at the end', 'utf8')
     const result = runGate(repo, 'verify-final-newline.mjs')
     assert.equal(result.code, 1)
@@ -497,7 +495,7 @@ test('a file without a trailing newline is rejected', () => {
 })
 
 test('a file with more than one trailing newline is rejected', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     writeFileSync(join(repo, 'docs', 'extra.md'), '# Title\n\nbody\n\n', 'utf8')
     const result = runGate(repo, 'verify-final-newline.mjs')
     assert.equal(result.code, 1)
@@ -506,21 +504,21 @@ test('a file with more than one trailing newline is rejected', () => {
 })
 
 test('a file ending in exactly one newline is accepted', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     writeFileSync(join(repo, 'docs', 'fine.md'), '# Title\n\nbody\n', 'utf8')
     assert.equal(runGate(repo, 'verify-final-newline.mjs').code, 0)
   })
 })
 
 test('an empty file is not a newline violation', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     writeFileSync(join(repo, 'docs', 'empty.md'), '', 'utf8')
     assert.equal(runGate(repo, 'verify-final-newline.mjs').code, 0)
   })
 })
 
 test('build and dependency directories are not walked', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     for (const dir of ['node_modules', 'dist', 'build', 'target', 'vendor', 'coverage']) {
       mkdirSync(join(repo, dir), { recursive: true })
       writeFileSync(join(repo, dir, 'x.md'), '# no newline', 'utf8')
@@ -535,7 +533,7 @@ test('build and dependency directories are not walked', () => {
 // record for this gate states.
 
 test('a marker that names nothing is rejected', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     // A bare tag is the case the scan exists to prevent: it tells a reader the
     // problem was noticed and nothing about what is missing.
     writeFileSync(join(repo, 'tool.mjs'), '// TODO\nexport const x = 1\n', 'utf8')
@@ -547,9 +545,8 @@ test('a marker that names nothing is rejected', () => {
 })
 
 test('a marker with a reason is listed and accepted', () => {
-  withRepo({}, (repo) => {
-    writeFileSync(join(repo, 'tool.mjs'),
-      '// FIXME(release): the parser drops the last field\nexport const x = 1\n// TODO: rename this\n', 'utf8')
+  withRepo({}, repo => {
+    writeFileSync(join(repo, 'tool.mjs'), '// FIXME(release): the parser drops the last field\nexport const x = 1\n// TODO: rename this\n', 'utf8')
     const result = runGate(repo, 'verify-issue-tags.mjs')
     assert.equal(result.code, 0, result.output)
     // The report is the scan the standing orders promise: location, tag, owner,
@@ -561,12 +558,11 @@ test('a marker with a reason is listed and accepted', () => {
 })
 
 test('prose that names the vocabulary is not a marker', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     // The rule is about what a marker is, not about the word. A word-based scan
     // reports the file that defines the vocabulary — including this gate's own
     // source — and a scan that reports its own rule is worse than none.
-    writeFileSync(join(repo, 'tool.mjs'),
-      "const TAGS = ['FIXME', 'TODO', 'XXX']\n// the tags are FIXME, TODO, and XXX\n", 'utf8')
+    writeFileSync(join(repo, 'tool.mjs'), "const TAGS = ['FIXME', 'TODO', 'XXX']\n// the tags are FIXME, TODO, and XXX\n", 'utf8')
     const result = runGate(repo, 'verify-issue-tags.mjs')
     assert.equal(result.code, 0, result.output)
     assert.match(result.output, /no known-issue markers/u)
@@ -574,19 +570,18 @@ test('prose that names the vocabulary is not a marker', () => {
 })
 
 test('--staged leaves a marker outside the commit alone', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     writeFileSync(join(repo, 'old.mjs'), '// TODO\n', 'utf8')
     writeFileSync(join(repo, 'tool.mjs'), 'export const x = 1\n', 'utf8')
     assert.equal(spawnSync('git', ['-C', repo, 'add', 'tool.mjs'], { encoding: 'utf8' }).status, 0)
-    const staged = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-issue-tags.mjs'), '--staged'],
-      { cwd: repo, encoding: 'utf8' })
+    const staged = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-issue-tags.mjs'), '--staged'], { cwd: repo, encoding: 'utf8' })
     assert.equal(staged.status, 0, staged.stdout + staged.stderr)
     assert.match(staged.stdout, /1 file\(s\) checked/u)
   })
 })
 
 test('a file inside a dot-directory is judged like any other', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     // The rule is stated over every file the repository owns, and `.agents/` is
     // named by `markdownGlobs`. A walker that does not descend into dot
     // directories is not a reason for the rule to stop applying there.
@@ -598,7 +593,7 @@ test('a file inside a dot-directory is judged like any other', () => {
 })
 
 test('an archived record is skipped through the shared skip list', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     // The frozen archive is named once, in `skipGlobs`, for every gate at once.
     // A gate that skips it by its own rule drifts from the gates that do not.
     writeRecord(repo, 'archived/architecture/2020-01-01-old.md', '# Old\n\nfrozen, no newline')
@@ -607,7 +602,7 @@ test('an archived record is skipped through the shared skip list', () => {
 })
 
 test('a declaration cannot narrow the newline corpus away', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     // The built-in globs are a floor rather than a default, so emptying every
     // list the configuration declares cannot reduce the gate to a clean run
     // over no files at all.
@@ -624,7 +619,7 @@ test('a declaration cannot narrow the newline corpus away', () => {
   })
 })
 
-test('a language layer\'s skip directories are honoured by the newline gate', () => {
+test("a language layer's skip directories are honoured by the newline gate", () => {
   const repo = scaffoldPython()
   try {
     // The layer declares `venv/` as output it does not own, so its language
@@ -642,27 +637,25 @@ test('a language layer\'s skip directories are honoured by the newline gate', ()
 })
 
 test('--staged still rejects a staged file the rule covers', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     writeFileSync(join(repo, 'docs', 'bare.md'), '# Title\n\nno newline at the end', 'utf8')
     writeFileSync(join(repo, 'docs', 'fine.md'), '# Title\n\nbody\n', 'utf8')
     assert.equal(spawnSync('git', ['-C', repo, 'add', 'docs/bare.md', 'docs/fine.md'], { encoding: 'utf8' }).status, 0)
-    const result = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-final-newline.mjs'), '--staged'],
-      { cwd: repo, encoding: 'utf8' })
+    const result = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-final-newline.mjs'), '--staged'], { cwd: repo, encoding: 'utf8' })
     assert.equal(result.status, 1)
     assert.match(result.stderr, /docs\/bare\.md\s+no trailing newline/u)
   })
 })
 
 test('--staged never judges a file the repository run would not', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     // Staged files this rule was never written for: no glob matches either, and
     // a trailing newline cannot be added to a PNG. Failing a commit over one
     // leaves the author no remedy inside the gate, only --no-verify.
     writeFileSync(join(repo, 'Makefile'), 'all:\n\techo hi', 'utf8')
     writeFileSync(join(repo, 'logo.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]))
     assert.equal(spawnSync('git', ['-C', repo, 'add', 'Makefile', 'logo.png'], { encoding: 'utf8' }).status, 0)
-    const staged = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-final-newline.mjs'), '--staged'],
-      { cwd: repo, encoding: 'utf8' })
+    const staged = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-final-newline.mjs'), '--staged'], { cwd: repo, encoding: 'utf8' })
     assert.equal(staged.status, 0, staged.stdout + staged.stderr)
     assert.match(staged.stdout, /0 file\(s\) checked/u)
     // The suite the hook runs must therefore pass on the same index.
@@ -672,19 +665,18 @@ test('--staged never judges a file the repository run would not', () => {
 })
 
 test('--staged restricts the newline check to staged files', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     writeFileSync(join(repo, 'docs', 'old.md'), '# pre-existing', 'utf8')
     writeFileSync(join(repo, 'docs', 'new.md'), 'clean\n', 'utf8')
     assert.equal(spawnSync('git', ['-C', repo, 'add', 'docs/new.md'], { encoding: 'utf8' }).status, 0)
-    const result = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-final-newline.mjs'), '--staged'],
-      { cwd: repo, encoding: 'utf8' })
+    const result = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-final-newline.mjs'), '--staged'], { cwd: repo, encoding: 'utf8' })
     assert.equal(result.status, 0, result.stdout + result.stderr)
     assert.match(result.stdout, /1 file\(s\) checked/u)
   })
 })
 
 test('the budget gate sums per-layer contributions', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     const manifestPath = join(repo, 'scripts', 'gates', 'doc-budgets.manifest.json')
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
     // A shared document is budgeted by contribution, because a layer that
@@ -693,14 +685,13 @@ test('the budget gate sums per-layer contributions', () => {
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
     const result = runGate(repo, 'verify-doc-budgets.mjs')
     assert.equal(result.code, 0, result.output)
-    const listed = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-doc-budgets.mjs'), '--list'],
-      { cwd: repo, encoding: 'utf8' })
+    const listed = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-doc-budgets.mjs'), '--list'], { cwd: repo, encoding: 'utf8' })
     assert.match(listed.stdout, /base 500 \+ extra 400/u)
   })
 })
 
 test('a contribution entry that is not a positive integer is rejected', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     const manifestPath = join(repo, 'scripts', 'gates', 'doc-budgets.manifest.json')
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
     manifest['docs/AGENTS.md'] = { base: 0 }
@@ -712,15 +703,14 @@ test('a contribution entry that is not a positive integer is rejected', () => {
 })
 
 test('--staged judges only the files the whole-repository run judges', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     // `notes/` is outside `markdownGlobs`, so the suite never reads this file.
     // Reading it in the hook anyway would fail a commit over a paragraph no
     // gate was pointed at, with no remedy but amending a file no gate owns.
     mkdirSync(join(repo, 'notes'), { recursive: true })
     writeFileSync(join(repo, 'notes', 'loose.md'), 'A paragraph that is\nhard wrapped across lines.\n', 'utf8')
     assert.equal(spawnSync('git', ['-C', repo, 'add', 'notes/loose.md'], { encoding: 'utf8' }).status, 0)
-    const staged = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-md-wrap.mjs'), '--staged'],
-      { cwd: repo, encoding: 'utf8' })
+    const staged = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-md-wrap.mjs'), '--staged'], { cwd: repo, encoding: 'utf8' })
     assert.equal(staged.status, 0, staged.stdout + staged.stderr)
     stageAll(repo)
     assert.equal(runSuite(repo, 'commit').code, 0)
@@ -728,11 +718,10 @@ test('--staged judges only the files the whole-repository run judges', () => {
 })
 
 test('--staged still rejects a hard-wrapped file inside the corpus', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     writeFileSync(join(repo, 'docs', 'wrapped.md'), 'A paragraph that is\nhard wrapped across lines.\n', 'utf8')
     assert.equal(spawnSync('git', ['-C', repo, 'add', 'docs/wrapped.md'], { encoding: 'utf8' }).status, 0)
-    const staged = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-md-wrap.mjs'), '--staged'],
-      { cwd: repo, encoding: 'utf8' })
+    const staged = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-md-wrap.mjs'), '--staged'], { cwd: repo, encoding: 'utf8' })
     assert.equal(staged.status, 1)
     assert.match(staged.stderr, /docs\/wrapped\.md:2/u)
   })
@@ -747,16 +736,14 @@ test('the python gate bounds a staged run to its configured corpus', { skip: !HA
     writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8')
     writePython(repo, 'other/bare.py', 'def bare():\n    return 1\n')
     assert.equal(spawnSync('git', ['-C', repo, 'add', 'other/bare.py', 'scripts/gates/config.json'], { encoding: 'utf8' }).status, 0)
-    const staged = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-python-docstrings.mjs'), '--staged'],
-      { cwd: repo, encoding: 'utf8' })
+    const staged = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-python-docstrings.mjs'), '--staged'], { cwd: repo, encoding: 'utf8' })
     assert.equal(staged.status, 0, staged.stdout + staged.stderr)
     assert.match(staged.stdout, /0 file\(s\) checked/u)
 
     // An in-corpus file is still judged, so the bound is not a blanket skip.
     writePython(repo, 'src/bare.py', 'def bare():\n    return 1\n')
     assert.equal(spawnSync('git', ['-C', repo, 'add', 'src/bare.py'], { encoding: 'utf8' }).status, 0)
-    const caught = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-python-docstrings.mjs'), '--staged'],
-      { cwd: repo, encoding: 'utf8' })
+    const caught = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-python-docstrings.mjs'), '--staged'], { cwd: repo, encoding: 'utf8' })
     assert.equal(caught.status, 1)
     assert.match(caught.stderr, /src\/bare\.py/u)
   } finally {
@@ -772,7 +759,7 @@ test('the python gate bounds a staged run to its configured corpus', { skip: !HA
 const FALSE_CLOSE = '# Title\n\n```\n``` not a close\ncode\n```\n\n'
 
 test('a wrapped paragraph after a fence with a false close is rejected', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     writeFileSync(join(repo, 'docs', 'fence.md'), `${FALSE_CLOSE}first line\nsecond line.\n`, 'utf8')
     const result = runGate(repo, 'verify-md-wrap.mjs')
     assert.equal(result.code, 1, result.output)
@@ -781,7 +768,7 @@ test('a wrapped paragraph after a fence with a false close is rejected', () => {
 })
 
 test('a broken link after a fence with a false close is rejected', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     writeFileSync(join(repo, 'docs', 'fence.md'), `${FALSE_CLOSE}[gone](nope.md)\n`, 'utf8')
     const result = runGate(repo, 'verify-md-links.mjs')
     assert.equal(result.code, 1, result.output)
@@ -790,9 +777,8 @@ test('a broken link after a fence with a false close is rejected', () => {
 })
 
 test('a shorter fence inside a longer one stays code', () => {
-  withRepo({}, (repo) => {
-    writeFileSync(join(repo, 'docs', 'fence.md'),
-      '# Title\n\n````md\n```\nwrapped\nexample\n[gone](nope.md)\n```\n````\n\n~~~\n```\n~~~\n', 'utf8')
+  withRepo({}, repo => {
+    writeFileSync(join(repo, 'docs', 'fence.md'), '# Title\n\n````md\n```\nwrapped\nexample\n[gone](nope.md)\n```\n````\n\n~~~\n```\n~~~\n', 'utf8')
     assert.equal(runGate(repo, 'verify-md-wrap.mjs').code, 0)
     assert.equal(runGate(repo, 'verify-md-links.mjs').code, 0)
   })
@@ -800,59 +786,80 @@ test('a shorter fence inside a longer one stays code', () => {
 
 test('a record may show a heading inside a nested fence', () => {
   const example = '\n````markdown\n```\n## Proposal\n```\n````\n'
-  withRepo({ mutate: repo => writeRecord(repo, 'implemented/architecture/2026-01-01-good.md', GOOD_RECORD + example) },
-    (repo) => {
-      const result = runGate(repo, 'verify-agent-note-format.mjs')
-      assert.equal(result.code, 0, result.output)
-    })
+  withRepo({ mutate: repo => writeRecord(repo, 'implemented/architecture/2026-01-01-good.md', GOOD_RECORD + example) }, repo => {
+    const result = runGate(repo, 'verify-agent-note-format.mjs')
+    assert.equal(result.code, 0, result.output)
+  })
 })
 
 test('a record whose fence closes falsely is judged on what follows', () => {
   const example = '\n```\n``` md\n```\n\n## Proposal\n\nA leftover plan.\n'
-  withRepo({ mutate: repo => writeRecord(repo, 'implemented/architecture/2026-01-01-good.md', GOOD_RECORD + example) },
-    (repo) => {
-      const result = runGate(repo, 'verify-agent-note-format.mjs')
-      assert.equal(result.code, 1, result.output)
-      assert.match(result.output, /proposal-era heading/u)
-    })
+  withRepo({ mutate: repo => writeRecord(repo, 'implemented/architecture/2026-01-01-good.md', GOOD_RECORD + example) }, repo => {
+    const result = runGate(repo, 'verify-agent-note-format.mjs')
+    assert.equal(result.code, 1, result.output)
+    assert.match(result.output, /proposal-era heading/u)
+  })
 })
 
 // Link forms beyond `[text](path)`: every one of these names a file, so a
 // broken target is rejected whichever form it is written in.
 
 test('every inline link form is resolved', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     writeFileSync(join(repo, 'docs', 'has space.md'), '# x\n', 'utf8')
     writeFileSync(join(repo, 'docs', 'paren(1).md'), '# x\n', 'utf8')
-    writeFileSync(join(repo, 'docs', 'forms.md'), [
-      '# Title', '',
-      "[single](AGENTS.md 'title') [paren](AGENTS.md (title)) [angle](<has space.md>) [balanced](paren(1).md)",
-      '[![badge](AGENTS.md)](AGENTS.md "title")', '',
-    ].join('\n'), 'utf8')
+    writeFileSync(
+      join(repo, 'docs', 'forms.md'),
+      [
+        '# Title',
+        '',
+        "[single](AGENTS.md 'title') [paren](AGENTS.md (title)) [angle](<has space.md>) [balanced](paren(1).md)",
+        '[![badge](AGENTS.md)](AGENTS.md "title")',
+        '',
+      ].join('\n'),
+      'utf8',
+    )
     assert.equal(runGate(repo, 'verify-md-links.mjs').code, 0)
 
-    writeFileSync(join(repo, 'docs', 'forms.md'), [
-      '# Title', '',
-      "[single](gone-single.md 'title')", '',
-      '[paren](gone-paren.md (title))', '',
-      '[angle](<gone angle.md>)', '',
-      '[balanced](gone(1).md)', '',
-      '[![badge](gone-badge.svg)](AGENTS.md)', '',
-    ].join('\n'), 'utf8')
+    writeFileSync(
+      join(repo, 'docs', 'forms.md'),
+      [
+        '# Title',
+        '',
+        "[single](gone-single.md 'title')",
+        '',
+        '[paren](gone-paren.md (title))',
+        '',
+        '[angle](<gone angle.md>)',
+        '',
+        '[balanced](gone(1).md)',
+        '',
+        '[![badge](gone-badge.svg)](AGENTS.md)',
+        '',
+      ].join('\n'),
+      'utf8',
+    )
     const result = runGate(repo, 'verify-md-links.mjs')
     assert.equal(result.code, 1)
-    for (const [line, target] of [[3, 'gone-single\\.md'], [5, 'gone-paren\\.md'], [7, 'gone angle\\.md'],
-      [9, 'gone\\(1\\)\\.md'], [11, 'gone-badge\\.svg']]) {
+    for (const [line, target] of [
+      [3, 'gone-single\\.md'],
+      [5, 'gone-paren\\.md'],
+      [7, 'gone angle\\.md'],
+      [9, 'gone\\(1\\)\\.md'],
+      [11, 'gone-badge\\.svg'],
+    ]) {
       assert.match(result.output, new RegExp(`docs/forms\\.md:${line}\\s+${target} —`, 'u'))
     }
   })
 })
 
 test('a reference definition with a broken target is rejected', () => {
-  withRepo({}, (repo) => {
-    writeFileSync(join(repo, 'docs', 'refs.md'),
+  withRepo({}, repo => {
+    writeFileSync(
+      join(repo, 'docs', 'refs.md'),
       '# Title\n\nSee [full][good], [collapsed][], and [bad].\n\n[good]: ../AGENTS.md\n[collapsed]: <../AGENTS.md> "t"\n[bad]: gone.md\n[^1]: a footnote, not a link\n',
-      'utf8')
+      'utf8',
+    )
     const result = runGate(repo, 'verify-md-links.mjs')
     assert.equal(result.code, 1, result.output)
     assert.match(result.output, /docs\/refs\.md:7\s+gone\.md/u)
@@ -863,9 +870,8 @@ test('a reference definition with a broken target is rejected', () => {
 })
 
 test('links inside code spans and indented code are not resolved', () => {
-  withRepo({}, (repo) => {
-    writeFileSync(join(repo, 'docs', 'code.md'),
-      '# Title\n\nWrite `[text](missing.md)` or ``[a](b` c.md)``.\n\n    [indented](missing.md)\n', 'utf8')
+  withRepo({}, repo => {
+    writeFileSync(join(repo, 'docs', 'code.md'), '# Title\n\nWrite `[text](missing.md)` or ``[a](b` c.md)``.\n\n    [indented](missing.md)\n', 'utf8')
     const result = runGate(repo, 'verify-md-links.mjs')
     assert.equal(result.code, 0, result.output)
   })
@@ -875,15 +881,14 @@ test('links inside code spans and indented code are not resolved', () => {
 // record, and two trailing CRLFs are two trailing line endings.
 
 test('a CRLF record conforms like an LF one', () => {
-  withRepo({ mutate: repo => writeRecord(repo, 'implemented/architecture/2026-01-01-good.md', GOOD_RECORD.replace(/\n/gu, '\r\n')) },
-    (repo) => {
-      const result = runGate(repo, 'verify-agent-note-format.mjs')
-      assert.equal(result.code, 0, result.output)
-    })
+  withRepo({ mutate: repo => writeRecord(repo, 'implemented/architecture/2026-01-01-good.md', GOOD_RECORD.replace(/\n/gu, '\r\n')) }, repo => {
+    const result = runGate(repo, 'verify-agent-note-format.mjs')
+    assert.equal(result.code, 0, result.output)
+  })
 })
 
 test('a CRLF paragraph wrapped across lines is rejected', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     writeFileSync(join(repo, 'docs', 'crlf.md'), '# Title\r\n\r\nfirst line\r\nsecond line.\r\n', 'utf8')
     const result = runGate(repo, 'verify-md-wrap.mjs')
     assert.equal(result.code, 1)
@@ -892,7 +897,7 @@ test('a CRLF paragraph wrapped across lines is rejected', () => {
 })
 
 test('more than one trailing line ending is rejected in either style', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     writeFileSync(join(repo, 'docs', 'one.md'), '# Title\r\n', 'utf8')
     assert.equal(runGate(repo, 'verify-final-newline.mjs').code, 0)
     writeFileSync(join(repo, 'docs', 'crlf.md'), '# Title\r\n\r\n', 'utf8')
@@ -906,7 +911,7 @@ test('more than one trailing line ending is rejected in either style', () => {
 })
 
 test('a CRLF marker that names nothing is rejected', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     writeFileSync(join(repo, 'tool.mjs'), '// TODO\r\nexport const x = 1\r\n', 'utf8')
     const result = runGate(repo, 'verify-issue-tags.mjs')
     assert.equal(result.code, 1)
@@ -918,7 +923,7 @@ test('a CRLF marker that names nothing is rejected', () => {
 // only in the working copy is still what the commit would record.
 
 test('the commit group judges staged content, not the working copy', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     writeFileSync(join(repo, 'docs', 'wrapped.md'), '# Title\n\nfirst line\nsecond line.\n', 'utf8')
     writeFileSync(join(repo, 'docs', 'bare.md'), '# Title\n\nno newline', 'utf8')
     writeFileSync(join(repo, 'tool.mjs'), '// TODO\n', 'utf8')
@@ -936,7 +941,7 @@ test('the commit group judges staged content, not the working copy', () => {
 })
 
 test('the commit group passes staged content the working copy has since broken', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     writeFileSync(join(repo, 'docs', 'fine.md'), '# Title\n\none line.\n', 'utf8')
     stageAll(repo)
     writeFileSync(join(repo, 'docs', 'fine.md'), '# Title\n\nnow\nwrapped', 'utf8')
@@ -946,10 +951,12 @@ test('the commit group passes staged content the working copy has since broken',
 })
 
 test('the pre-commit hook rejects a staged violation fixed only in the working copy', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     const env = gitConfigEnv(join(repo, '.git', 'sandbox-gitconfig'), {
-      GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.com',
-      GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.com',
+      GIT_AUTHOR_NAME: 'Test',
+      GIT_AUTHOR_EMAIL: 'test@example.com',
+      GIT_COMMITTER_NAME: 'Test',
+      GIT_COMMITTER_EMAIL: 'test@example.com',
     })
     const git = (...args) => spawnSync('git', ['-C', repo, '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8', env })
     assert.match(git('config', 'core.hooksPath').stdout, /\.githooks/u, 'the scaffold installs the hook')
@@ -977,12 +984,15 @@ test('the pre-commit hook rejects a staged violation fixed only in the working c
  */
 function installOnlyGate(repo, source, advisory) {
   writeFileSync(join(repo, 'scripts', 'gates', 'noisy.mjs'), source, 'utf8')
-  writeFileSync(join(repo, 'scripts', 'gates', 'gates.json'),
-    `${JSON.stringify({ 'noisy.mjs': { groups: ['full'], description: 'prints a lot', advisory } }, null, 2)}\n`, 'utf8')
+  writeFileSync(
+    join(repo, 'scripts', 'gates', 'gates.json'),
+    `${JSON.stringify({ 'noisy.mjs': { groups: ['full'], description: 'prints a lot', advisory } }, null, 2)}\n`,
+    'utf8',
+  )
 }
 
 test('a passing gate with more than a megabyte of output passes', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     installOnlyGate(repo, "process.stdout.write('x'.repeat(4 * 1024 * 1024) + '\\nnoisy: done\\n')\n", false)
     const result = runSuite(repo)
     assert.equal(result.code, 0, result.output.slice(-500))
@@ -1013,19 +1023,31 @@ test('a gate that cannot be run to completion honours advisory', async () => {
  */
 function installRendezvousGates(repo) {
   const gates = join(repo, 'scripts', 'gates')
-  writeFileSync(join(gates, 'waits.mjs'), [
-    "import { existsSync } from 'node:fs'",
-    'const until = Date.now() + 3000',
-    "while (!existsSync('rendezvous') && Date.now() < until) await new Promise(settle => setTimeout(settle, 20))",
-    "if (existsSync('rendezvous')) console.log('waits: met')",
-    "else { console.error('waits: alone'); process.exitCode = 1 }",
-    '',
-  ].join('\n'), 'utf8')
+  writeFileSync(
+    join(gates, 'waits.mjs'),
+    [
+      "import { existsSync } from 'node:fs'",
+      'const until = Date.now() + 3000',
+      "while (!existsSync('rendezvous') && Date.now() < until) await new Promise(settle => setTimeout(settle, 20))",
+      "if (existsSync('rendezvous')) console.log('waits: met')",
+      "else { console.error('waits: alone'); process.exitCode = 1 }",
+      '',
+    ].join('\n'),
+    'utf8',
+  )
   writeFileSync(join(gates, 'arrives.mjs'), "import { writeFileSync } from 'node:fs'\nwriteFileSync('rendezvous', '')\nconsole.log('arrives: here')\n", 'utf8')
-  writeFileSync(join(gates, 'gates.json'), `${JSON.stringify({
-    'waits.mjs': { groups: ['full'], description: 'waits for the other gate' },
-    'arrives.mjs': { groups: ['full'], description: 'arrives' },
-  }, null, 2)}\n`, 'utf8')
+  writeFileSync(
+    join(gates, 'gates.json'),
+    `${JSON.stringify(
+      {
+        'waits.mjs': { groups: ['full'], description: 'waits for the other gate' },
+        'arrives.mjs': { groups: ['full'], description: 'arrives' },
+      },
+      null,
+      2,
+    )}\n`,
+    'utf8',
+  )
 }
 
 /**
@@ -1040,7 +1062,7 @@ function runSuiteWith(repo, args) {
 }
 
 test('gates run concurrently and are reported in manifest order', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     installRendezvousGates(repo)
     const result = runSuiteWith(repo, ['--jobs', '2'])
     assert.equal(result.code, 0, result.output)
@@ -1049,7 +1071,7 @@ test('gates run concurrently and are reported in manifest order', () => {
 })
 
 test('--jobs 1 runs one gate at a time', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     installRendezvousGates(repo)
     const result = runSuiteWith(repo, ['--jobs', '1'])
     assert.equal(result.code, 1, result.output)
@@ -1058,7 +1080,7 @@ test('--jobs 1 runs one gate at a time', () => {
 })
 
 test('--jobs rejects a count that is not a positive whole number', () => {
-  withRepo({}, (repo) => {
+  withRepo({}, repo => {
     for (const jobs of ['0', '-1', '1.5', 'many']) {
       const result = runSuiteWith(repo, [`--jobs=${jobs}`])
       assert.equal(result.code, 2, `${jobs}: ${result.output}`)
@@ -1080,12 +1102,18 @@ test('a skipped directory is pruned from the walk, not filtered after it', async
     const cache = new Map()
     const pruned = lib.expandGlob(repo, '**/*.js', { prune: new Set(['node_modules']), cache })
     assert.deepEqual(pruned, ['src/kept.js'])
-    assert.ok([...cache.keys()].every(dir => !dir.split(/[\\/]/u).includes('node_modules')), [...cache.keys()].join('\n'))
+    assert.ok(
+      [...cache.keys()].every(dir => !dir.split(/[\\/]/u).includes('node_modules')),
+      [...cache.keys()].join('\n'),
+    )
 
     // Pruning must not change the answer the predicate alone would give.
     const isSkipped = lib.corpusSkipPredicate(repo, {}, lib.REPOSITORY_SKIP_DIRECTORIES)
     const filtered = lib.expandGlob(repo, '**/*.js').filter(relPath => !isSkipped(relPath))
-    assert.deepEqual(lib.collectFiles(repo, ['**/*.js'], isSkipped).map(file => file.relPath), filtered)
+    assert.deepEqual(
+      lib.collectFiles(repo, ['**/*.js'], isSkipped).map(file => file.relPath),
+      filtered,
+    )
   } finally {
     removeSandbox(repo)
   }

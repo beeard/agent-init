@@ -47,9 +47,7 @@
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
-import {
-  REPOSITORY_SKIP_DIRECTORIES, collectFiles, corpusSkipPredicate, isMain, readConfig, stagedSources, stagedSubset,
-} from './lib/repo-files.mjs'
+import { REPOSITORY_SKIP_DIRECTORIES, collectFiles, corpusSkipPredicate, isMain, readConfig, stagedSources, stagedSubset } from './lib/repo-files.mjs'
 
 const ROOT = resolve(import.meta.dirname, '..', '..')
 
@@ -142,8 +140,7 @@ function isExported(ts, node, ambient) {
 function bindingNames(ts, name) {
   if (ts.isIdentifier(name)) return [name.text]
   if (ts.isObjectBindingPattern(name) || ts.isArrayBindingPattern(name)) {
-    return name.elements.flatMap(element =>
-      ts.isOmittedExpression(element) || element.name === undefined ? [] : bindingNames(ts, element.name))
+    return name.elements.flatMap(element => (ts.isOmittedExpression(element) || element.name === undefined ? [] : bindingNames(ts, element.name)))
   }
   return []
 }
@@ -192,8 +189,7 @@ function selfDocumenting(ts, node) {
     ts.SyntaxKind.BigIntKeyword,
     ts.SyntaxKind.SymbolKeyword,
   ])
-  const transparent = type =>
-    (ts.isLiteralTypeNode(type) && ts.isLiteralExpression(type.literal)) || keywords.has(type.kind)
+  const transparent = type => (ts.isLiteralTypeNode(type) && ts.isLiteralExpression(type.literal)) || keywords.has(type.kind)
   return transparent(node.type) || (ts.isUnionTypeNode(node.type) && node.type.types.every(transparent))
 }
 
@@ -264,7 +260,7 @@ function walkStatements(ts, statements, ambient, local, report) {
     // Consecutive declarations of one function name are its overload signatures
     // and implementation. The JSDoc on the first is the one an editor shows for
     // every signature, so the group is judged once, by its first declaration.
-    const functionName = ts.isFunctionDeclaration(statement) ? statement.name?.text ?? '<default>' : null
+    const functionName = ts.isFunctionDeclaration(statement) ? (statement.name?.text ?? '<default>') : null
     const continuesGroup = functionName !== null && functionName === overloaded
     overloaded = functionName
     if (continuesGroup) continue
@@ -356,7 +352,7 @@ function analyzeFile(ts, file) {
   // silently shrinking the corpus.
   const syntax = sourceFile.parseDiagnostics ?? []
   if (syntax.length > 0) {
-    return syntax.map((diagnostic) => {
+    return syntax.map(diagnostic => {
       const { line } = ts.getLineAndCharacterOfPosition(sourceFile, diagnostic.start)
       return {
         relPath: file.relPath,

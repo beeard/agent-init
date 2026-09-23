@@ -26,7 +26,12 @@ import { gitConfigEnv, removeSandbox, scaffold } from './helpers.mjs'
 function git(repo, args) {
   const result = spawnSync('git', ['-C', repo, ...args], {
     encoding: 'utf8',
-    env: gitConfigEnv(join(repo, '.gitconfig'), { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.com' }),
+    env: gitConfigEnv(join(repo, '.gitconfig'), {
+      GIT_AUTHOR_NAME: 't',
+      GIT_AUTHOR_EMAIL: 't@example.com',
+      GIT_COMMITTER_NAME: 't',
+      GIT_COMMITTER_EMAIL: 't@example.com',
+    }),
   })
   assert.equal(result.status, 0, `git ${args.join(' ')} failed: ${result.stderr}`)
   return result.stdout.trim()

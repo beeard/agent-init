@@ -175,14 +175,14 @@ export function buildPlan({ targetDir, templatesRoot, projectName, skills, stack
         if (!skills.includes(skillName)) continue
       }
       const relTemplate = relative(join(templatesRoot, layer), abs).split(sep).join('/')
-      const kind = relTemplate.endsWith(APPEND_SUFFIX) ? 'append'
-        : relTemplate.endsWith(MERGE_SUFFIX) ? 'merge'
-          : relTemplate.endsWith(COMPOSE_SUFFIX) ? 'compose'
+      const kind = relTemplate.endsWith(APPEND_SUFFIX)
+        ? 'append'
+        : relTemplate.endsWith(MERGE_SUFFIX)
+          ? 'merge'
+          : relTemplate.endsWith(COMPOSE_SUFFIX)
+            ? 'compose'
             : 'write'
-      const suffix = kind === 'append' ? APPEND_SUFFIX
-        : kind === 'merge' ? MERGE_SUFFIX
-          : kind === 'compose' ? COMPOSE_SUFFIX
-            : ''
+      const suffix = kind === 'append' ? APPEND_SUFFIX : kind === 'merge' ? MERGE_SUFFIX : kind === 'compose' ? COMPOSE_SUFFIX : ''
       const relPath = substitute(suffix === '' ? relTemplate : relTemplate.slice(0, -suffix.length), variables)
       const path = resolve(targetDir, relPath)
       const content = substitute(readText(abs), variables)
@@ -266,12 +266,13 @@ function assertStacksDoNotShare(files, stack) {
     if (!replaces(held.kind) && !replaces(file.kind)) continue
     const writer = replaces(held.kind) ? held.layer : file.layer
     const other = replaces(held.kind) ? file.layer : held.layer
-    const clash = replaces(held.kind) && replaces(file.kind)
-      ? `"${held.layer}" and "${file.layer}" both write ${file.relPath}`
-      : `"${writer}" writes ${file.relPath} and "${other}" also contributes to it`
+    const clash =
+      replaces(held.kind) && replaces(file.kind)
+        ? `"${held.layer}" and "${file.layer}" both write ${file.relPath}`
+        : `"${writer}" writes ${file.relPath} and "${other}" also contributes to it`
     throw new Error(
-      `${clash}. Stack order is the caller's choice, so which layer survives would depend on the order `
-      + 'the flags were typed. Give each language its own path, or contribute with .append or .merge.',
+      `${clash}. Stack order is the caller's choice, so which layer survives would depend on the order ` +
+        'the flags were typed. Give each language its own path, or contribute with .append or .merge.',
     )
   }
 }
@@ -288,7 +289,7 @@ function assertStacksDoNotShare(files, stack) {
  * @returns The same actions, with any `gates.json` entry marked advisory.
  */
 function markAdvisory(files) {
-  return files.map((file) => {
+  return files.map(file => {
     if (!file.relPath.endsWith('gates.json') || file.kind === 'append') return file
     const gates = JSON.parse(file.content)
     for (const gate of Object.values(gates)) gate.advisory = true
@@ -356,13 +357,16 @@ function packageContribution(targetDir, stack, variables) {
       exists: false,
       moduleType: 'module',
       additions: { scripts: {}, devDependencies: {} },
-      create: Object.keys(devDependencies).length === 0 ? null : {
-        name: variables.SLUG,
-        private: true,
-        type: 'module',
-        scripts,
-        devDependencies,
-      },
+      create:
+        Object.keys(devDependencies).length === 0
+          ? null
+          : {
+              name: variables.SLUG,
+              private: true,
+              type: 'module',
+              scripts,
+              devDependencies,
+            },
     }
   }
 
@@ -402,7 +406,10 @@ function packageContribution(targetDir, stack, variables) {
 function canonicalJson(value) {
   if (Array.isArray(value)) return `[${[...value].map(canonicalJson).sort().join(',')}]`
   if (isPlainObject(value)) {
-    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`
+    return `{${Object.keys(value)
+      .sort()
+      .map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(',')}}`
   }
   return JSON.stringify(value)
 }
@@ -429,8 +436,16 @@ function bundlerBuild(targetDir, actual, packageJson) {
   if (typeof actual.moduleResolution === 'string' && actual.moduleResolution.toLowerCase() === 'bundler') return true
   const dependencies = { ...(packageJson?.dependencies ?? {}), ...(packageJson?.devDependencies ?? {}) }
   if (['next', 'vite', 'nuxt', 'astro', '@sveltejs/kit', 'parcel', 'webpack', 'esbuild'].some(name => Object.hasOwn(dependencies, name))) return true
-  return ['next.config.js', 'next.config.mjs', 'next.config.ts', 'vite.config.js', 'vite.config.mjs', 'vite.config.ts', 'astro.config.mjs', 'svelte.config.js']
-    .some(name => existsSync(resolve(targetDir, name)))
+  return [
+    'next.config.js',
+    'next.config.mjs',
+    'next.config.ts',
+    'vite.config.js',
+    'vite.config.mjs',
+    'vite.config.ts',
+    'astro.config.mjs',
+    'svelte.config.js',
+  ].some(name => existsSync(resolve(targetDir, name)))
 }
 
 /**

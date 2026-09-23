@@ -32,7 +32,12 @@
   },
   "scripts": {
     "test": "node --test",
-    "check": "node scripts/check.mjs"
+    "check": "node scripts/check.mjs",
+    "format": "npx --yes prettier@$npm_package_config_prettier --write \"**/*.{mjs,js,cjs,yml,yaml}\"",
+    "format:check": "npx --yes prettier@$npm_package_config_prettier --check \"**/*.{mjs,js,cjs,yml,yaml}\""
+  },
+  "config": {
+    "prettier": "3.8.1"
   },
   "keywords": [
     "agents",
