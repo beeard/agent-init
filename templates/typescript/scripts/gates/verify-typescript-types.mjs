@@ -16,7 +16,9 @@ import { existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
-import { collectFiles, isMain, readConfig } from './lib/repo-files.mjs'
+import {
+  REPOSITORY_SKIP_DIRECTORIES, collectFiles, corpusSkipPredicate, isMain, readConfig,
+} from './lib/repo-files.mjs'
 
 const ROOT = resolve(import.meta.dirname, '..', '..')
 
@@ -32,8 +34,7 @@ const ROOT = resolve(import.meta.dirname, '..', '..')
 function selectFiles(root) {
   const config = readConfig(resolve(root, 'scripts', 'gates', 'config.json'))
   const globs = config.typescriptGlobs ?? ['**/*.ts', '**/*.tsx', '**/*.mts', '**/*.cts']
-  const excluded = new Set(config.typescriptSkipDirectories ?? [])
-  const isSkipped = relPath => relPath.split('/').some(segment => excluded.has(segment))
+  const isSkipped = corpusSkipPredicate(root, config, REPOSITORY_SKIP_DIRECTORIES)
   return collectFiles(root, globs, isSkipped)
 }
 

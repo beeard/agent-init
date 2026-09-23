@@ -31,6 +31,11 @@
  * function type, a generic, a union of named types — hides its contract behind
  * the name and is reported.
  *
+ * An overloaded function is judged once, by its first declaration: the JSDoc
+ * there is the one an editor shows for every signature, and it covers the
+ * implementation. A namespace declared with a dotted name, `namespace A.B {}`,
+ * is walked to its innermost body like any other namespace.
+ *
  * Class, interface, and object-literal members are not walked: the class's
  * contract belongs in the JSDoc above the class, and requiring a comment per
  * getter would produce findings nobody reads.
@@ -42,7 +47,9 @@
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
-import { collectFiles, isMain, readConfig, stagedSources, stagedSubset } from './lib/repo-files.mjs'
+import {
+  REPOSITORY_SKIP_DIRECTORIES, collectFiles, corpusSkipPredicate, isMain, readConfig, stagedSources, stagedSubset,
+} from './lib/repo-files.mjs'
 
 const ROOT = resolve(import.meta.dirname, '..', '..')
 
@@ -90,8 +97,7 @@ function loadCompiler(root) {
 function selectFiles(root, stagedOnly) {
   const config = readConfig(resolve(root, 'scripts', 'gates', 'config.json'))
   const globs = config.typescriptGlobs ?? ['**/*.ts', '**/*.tsx']
-  const excluded = new Set(config.typescriptSkipDirectories ?? [])
-  const isSkipped = relPath => relPath.split('/').some(segment => excluded.has(segment))
+  const isSkipped = corpusSkipPredicate(root, config, REPOSITORY_SKIP_DIRECTORIES)
   const corpus = collectFiles(root, globs, isSkipped)
   const entry = file => ({ abs: file.abs, relPath: file.realPath ?? file.relPath })
 
@@ -253,15 +259,35 @@ function indexDeclarations(ts, statements) {
  * @param report - Receives one entry per undocumented export.
  */
 function walkStatements(ts, statements, ambient, local, report) {
+  let overloaded = null
   for (const statement of statements) {
-    if (ts.isModuleDeclaration(statement) && statement.body !== undefined && ts.isModuleBlock(statement.body)) {
+    // Consecutive declarations of one function name are its overload signatures
+    // and implementation. The JSDoc on the first is the one an editor shows for
+    // every signature, so the group is judged once, by its first declaration.
+    const functionName = ts.isFunctionDeclaration(statement) ? statement.name?.text ?? '<default>' : null
+    const continuesGroup = functionName !== null && functionName === overloaded
+    overloaded = functionName
+    if (continuesGroup) continue
+
+    if (ts.isModuleDeclaration(statement) && statement.body !== undefined) {
+      // `namespace A.B {}` nests a declaration for `B` as the body of `A`; the
+      // members live in the innermost block.
+      let body = statement.body
+      let flags = statement.flags
+      const names = [statement.name.getText()]
+      while (ts.isModuleDeclaration(body) && body.body !== undefined) {
+        names.push(body.name.getText())
+        flags |= body.flags
+        body = body.body
+      }
+      if (!ts.isModuleBlock(body)) continue
       if (isExported(ts, statement, ambient) && !documented(ts, statement)) {
-        report(statement, 'namespace', statement.name.getText())
+        report(statement, 'namespace', names.join('.'))
       }
       // Ambient members are exported without a modifier; a namespace member
       // needs the modifier, exactly as a module's own export does.
-      const nested = ambient || (statement.flags & ts.NodeFlags.Ambient) !== 0
-      walkStatements(ts, statement.body.statements, nested, local, report)
+      const nested = ambient || (flags & ts.NodeFlags.Ambient) !== 0
+      walkStatements(ts, body.statements, nested, local, report)
       continue
     }
 
