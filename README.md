@@ -81,7 +81,7 @@ The gate in every profile **delegates to the language's own tooling** rather tha
 |---|---|---|
 | `python` | `verify-python-docstrings.mjs` | Python's `ast` module, in a subprocess |
 | `go` | `verify-go-docstrings.mjs` | `go/parser` and `go/ast`, via `go run` |
-| `rust` | `verify-rust-doc-comments.mjs` | rustc's built-in `missing_docs` lint, via `cargo check` |
+| `rust` | `verify-rust-doc-comments.mjs` | rustc's built-in `missing_docs` lint, via `cargo rustc` |
 | `typescript` | `verify-typescript-doc-comments.mjs` | the `typescript` package from your own `node_modules` |
 | `typescript` | `verify-typescript-types.mjs` | the project's own `tsc --noEmit`, against its `tsconfig.json` |
 
@@ -89,7 +89,7 @@ Every stack gate ships **advisory**: it reports findings without failing the run
 
 Two of them need something before they can run, and say so when it is missing:
 
-- **Rust** needs `#![warn(missing_docs)]` in each crate root. The lint is built into rustc, so the compiler already has the check — but it only fires when the crate enables it, and a gate that reports a clean run because its own check was silently disabled is worse than no gate. Add the attribute; the gate fails loud until you do.
+- **Rust** needs nothing in the crate: the gate passes `-W missing_docs` to the compiler for every target of every workspace member, so a commented-out attribute cannot switch it off. A crate that does not compile fails the gate.
 - **TypeScript** needs `typescript` resolvable from your repository, which any TypeScript project already has. It is your dependency, not this package's.
 
 **`--stack typescript` also initialises the project.** A repository with no `tsconfig.json` gets the strict ESM config the standing orders describe, and a `package.json` (if it had none) declaring `typescript`, `typecheck`, and the gate scripts — run `npm install` afterwards. An existing `tsconfig.json` is left alone unless `--force`: the run reports every option the orders assume but the file does not set or sets differently. `verify-typescript-types` needs both a config and the compiler, and names whichever is missing.

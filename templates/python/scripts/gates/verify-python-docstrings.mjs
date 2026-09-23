@@ -10,7 +10,9 @@
  * "Public" means a name without a leading underscore, which is the convention
  * Python itself uses; the methods of a private class are private with it.
  * `@overload` stubs are exempt: they carry no behavior and their implementation
- * carries the docstring.
+ * carries the docstring. Test files as pytest collects them (`test_*.py`,
+ * `*_test.py`, `conftest.py`) are not analyzed: a test's name is its
+ * documentation.
  *
  * `--staged` checks only the Python files staged for commit, which is how the
  * pre-commit hook uses it.
@@ -24,6 +26,9 @@ import {
 } from './lib/repo-files.mjs'
 
 const ROOT = resolve(import.meta.dirname, '..', '..')
+
+/** Whether a path is a pytest test module or fixture file. */
+const isTestFile = relPath => /(?:^|\/)(?:test_[^/]*|[^/]*_test|conftest)\.py$/u.test(relPath)
 
 /**
  * The analysis program, run by the target repository's own interpreter.
@@ -108,7 +113,8 @@ function interpreter() {
 function selectFiles(root, stagedOnly) {
   const config = readConfig(resolve(root, 'scripts', 'gates', 'config.json'))
   const globs = config.pythonGlobs ?? ['**/*.py']
-  const isSkipped = corpusSkipPredicate(root, config, REPOSITORY_SKIP_DIRECTORIES)
+  const inSkippedRegion = corpusSkipPredicate(root, config, REPOSITORY_SKIP_DIRECTORIES)
+  const isSkipped = relPath => isTestFile(relPath) || inSkippedRegion(relPath)
   const corpus = collectFiles(root, globs, isSkipped)
   const entry = file => ({ abs: file.abs, relPath: file.realPath ?? file.relPath })
 

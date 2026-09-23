@@ -41,3 +41,5 @@ The base document is no longer a `write`, so a repository that adopted before th
 ## Related
 
 What the marker is for, and why a second layer appending needs its own, is in [Layer stack profiles as additive overlays](2026-09-15-layer-stack-profiles-as-overlays.md). Why the TypeScript layer now writes a config into the repository is in [TypeScript projects are initialised, not just annotated](../feature/2026-09-17-typescript-projects-are-initialised.md).
+
+A file that already carries the base orders is now kept even without the manifest, and a failed run writes nothing; see [A re-run keeps what the repository owns](../bug-fix/2026-09-23-a-re-run-keeps-what-the-repository-owns.md), which partly supersedes the "no manifest → appended" case above.

@@ -22,6 +22,8 @@ The Python analysis descends only into a public class. The members of a private 
 
 The Go selector leaves out every `_test.go` file. Go compiles it only into the test binary, so nothing in it is part of the package another package imports. The sibling scan for a package comment already ignored test files.
 
+The Python selector leaves out the files pytest collects as tests — `test_*.py`, `*_test.py` and `conftest.py` — for the same reason, and because the Python testing guide already said tests were exempt from the docstring gate.
+
 The TypeScript walker treats consecutive function declarations of one name as a single overload group and judges it once, by its first declaration: documented if that declaration carries JSDoc, reported once at its line otherwise. A module declaration is followed through nested declarations to its innermost block. The namespace is reported under its full dotted name, and the block's members are walked with the ambient flag of any level.
 
 ## Alternatives considered

@@ -188,6 +188,26 @@ test('python: the members of a private class are private with it', { skip: !HAS_
   }
 })
 
+test('python: pytest test files are not analysed', { skip: !HAS_PYTHON && 'python is not installed' }, () => {
+  const repo = scaffold(['--name', 'demo', '--stack', 'python', '--no-hooks'])
+  try {
+    write(repo, 'tests/test_mod.py', 'def test_adds():\n    pass\n')
+    write(repo, 'mod_test.py', 'def test_adds():\n    pass\n')
+    write(repo, 'tests/conftest.py', 'def fixture():\n    pass\n')
+    const passed = runGate(repo, 'verify-python-docstrings.mjs')
+    assert.equal(passed.code, 0, passed.output)
+
+    // A module that only resembles a test name is still judged.
+    write(repo, 'testing_utils.py', 'def helper():\n    pass\n')
+    const failed = runGate(repo, 'verify-python-docstrings.mjs')
+    assert.equal(failed.code, 1)
+    assert.match(failed.output, /testing_utils\.py/u)
+    assert.doesNotMatch(failed.output, /test_mod|mod_test|conftest/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
 test('python: a skipped region is outside the corpus', { skip: !HAS_PYTHON && 'python is not installed' }, () => {
   const repo = scaffold(['--name', 'demo', '--stack', 'python', '--no-hooks'])
   try {

@@ -62,8 +62,8 @@ A layer is a directory with the same shape as the composed result, and its filen
 
 - **No suffix** writes the file. A later layer writing the same path replaces it.
 - **`.append`** appends to the named file inside `<!-- agent-init:begin <layer> -->` markers.
-- **`.merge`** merges a JSON object into the named file: a key holding an object on both sides merges one level deeper, so several layers contribute to one shared value instead of overwriting each other, while every other key is replaced. A key the two sides disagree about the shape of fails the run rather than being resolved either way, because composing a shared value and setting one outright are different intents and the shapes are what tell them apart.
-- **`.compose`** writes the file when it is absent, appends it inside the layer's markers when the repository already had that file and had not adopted this structure, and keeps it once adopted.
+- **`.merge`** merges a JSON object into the named file: a key holding an object on both sides merges one level deeper, so several layers contribute to one shared value instead of overwriting each other, while every other key is replaced. A value the file already held before the run is kept unless `--force`, so a re-run never reverts a repository's own edit. A key the two sides disagree about the shape of fails the run rather than being resolved either way, because composing a shared value and setting one outright are different intents and the shapes are what tell them apart.
+- **`.compose`** writes the file when it is absent, appends it inside the layer's markers when the repository already had that file and had not adopted this structure, and keeps it once adopted or once the file already carries the content, so a lost manifest never duplicates the orders.
 
 The marker naming the layer is not decoration. With one shared marker, a second layer appending to `AGENTS.md` finds the marker present and contributes nothing — silently, with no failing check.
 
