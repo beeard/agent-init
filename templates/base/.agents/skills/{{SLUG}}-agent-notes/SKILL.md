@@ -1,6 +1,6 @@
 ---
 name: {{SLUG}}-agent-notes
-description: Use when writing, updating, reviewing, superseding, archiving, or deleting a decision record in {{PROJECT}}. Covers when a change needs one, which class folder it belongs in, the required body sections, the supersession check every new record triggers, and the archival rules.
+description: Use when writing, updating, reviewing, superseding, archiving, or deleting a decision record in {{PROJECT}}. Covers when a change needs one, which class folder it belongs in, the required body sections, the supersession check every new record triggers, and the archival rules. Not needed for a mechanical or local edit that changes no behavior, contract, structure, or process.
 ---
 
 # Decision records

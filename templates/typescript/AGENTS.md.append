@@ -10,4 +10,4 @@ These orders apply in addition to the general ones above.
 - **No floating promises.** Await them, return them, or explicitly mark the intent with `void`. An unawaited rejection surfaces as an unhandled rejection at an unrelated call site.
 - **Modules are ESM.** Use `.js` extensions in relative imports so the emitted output resolves under Node.
 - **`npm run typecheck` is the type gate.** It runs the project's own `tsc --noEmit` against `tsconfig.json`, and `verify-typescript-types` runs the same in the suite. A change that does not type-check is not done.
-- **The adopted `tsconfig.json` is the compiler's contract.** Do not narrow `strict`, `include`, or `skipLibCheck` to make an error disappear; fix the type or narrow at the source.
+- **The adopted `tsconfig.json` is the compiler's contract.** Do not narrow `strict`, `include`, or `skipLibCheck` to make an error disappear.
