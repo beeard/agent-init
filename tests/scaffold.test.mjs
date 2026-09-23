@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, unlinkSync, writeFileSync, chmodSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync, chmodSync } from 'node:fs'
 import { dirname, join, sep } from 'node:path'
 import { STACKS, buildPlan } from '../src/plan.mjs'
 import { collectFiles, skipPredicate } from '../templates/base/scripts/gates/lib/repo-files.mjs'
@@ -303,15 +303,20 @@ test('the merge report names what changed, not just the top-level keys', () => {
     const again = runCli(['.', '--stack', 'go'], repo)
     assert.match(again.output, /merged\s+scripts\/gates\/doc-budgets\.manifest\.json\s+already present/u)
 
-    // Entries the file already had, written with a different value: one inside
-    // a shared value, one replacing a plain number.
+    // Entries the file already had, edited to a different value: one inside a
+    // shared value, one a plain number. A re-run keeps both and names them.
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
     manifest['AGENTS.md'].go = 999
     manifest['docs/testing-go.md'] = 500
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
-    const changed = runCli(['.', '--stack', 'go'], repo)
-    assert.match(changed.output,
-      /merged\s+scripts\/gates\/doc-budgets\.manifest\.json\s+changed go in AGENTS\.md, changed docs\/testing-go\.md/u)
+    const kept = runCli(['.', '--stack', 'go'], repo)
+    assert.match(kept.output,
+      /kept\s+scripts\/gates\/doc-budgets\.manifest\.json\s+kept go in AGENTS\.md, docs\/testing-go\.md as the file has them/u)
+    assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8'))['AGENTS.md'].go, 999)
+
+    // --force is what replaces them.
+    assert.equal(runCli(['.', '--stack', 'go', '--force'], repo).code, 0)
+    assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8'))['AGENTS.md'].go, 260)
   } finally {
     removeSandbox(repo)
   }
@@ -845,6 +850,190 @@ test('a fresh repository gets the base orders without markers', () => {
     const agents = readFileSync(join(repo, 'AGENTS.md'), 'utf8')
     assert.match(agents, /Read before you change/u)
     assert.doesNotMatch(agents, /agent-init:begin base/u, 'a written file is not wrapped')
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+/**
+ * Count the base orders in a scaffolded AGENTS.md.
+ * @param repo - Absolute repository path.
+ * @returns How many copies of the base orders the file holds.
+ */
+function baseOrderCopies(repo) {
+  return readFileSync(join(repo, 'AGENTS.md'), 'utf8').match(/^## Read before you change$/gmu)?.length ?? 0
+}
+
+test('a re-run without the manifest does not compose the base orders a second time', () => {
+  const repo = scaffold(['--no-hooks'])
+  try {
+    // The written file carries no markers, so only its content says the orders
+    // are already there — edited or not.
+    writeFileSync(join(repo, 'AGENTS.md'), `${readFileSync(join(repo, 'AGENTS.md'), 'utf8')}\nEdited by hand.\n`, 'utf8')
+    rmSync(join(repo, '.agents', 'manifest.json'))
+    const again = runCli(['.', '--no-hooks'], repo)
+    assert.equal(again.code, 0, again.output)
+    assert.match(again.output, /kept\s+AGENTS\.md\s+exists; already carries these orders/u)
+    assert.equal(baseOrderCopies(repo), 1)
+    assert.match(readFileSync(join(repo, 'AGENTS.md'), 'utf8'), /Edited by hand\./u)
+    assert.ok(existsSync(join(repo, '.agents', 'manifest.json')), 'the manifest is written again')
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('a run a merge refuses writes nothing, so its re-run composes once', () => {
+  const repo = makeSandbox()
+  try {
+    const budgets = join(repo, 'scripts', 'gates', 'doc-budgets.manifest.json')
+    mkdirSync(dirname(budgets), { recursive: true })
+    writeFileSync(budgets, '{"AGENTS.md": 5}\n', 'utf8')
+    const failed = runCli(['.', '--no-hooks', '--stack', 'go'], repo)
+    assert.equal(failed.code, 2)
+    assert.match(failed.output, /Nothing was written/u)
+    assert.ok(!existsSync(join(repo, 'AGENTS.md')), 'the refusal comes before the first write')
+    writeFileSync(budgets, '{}\n', 'utf8')
+    assert.equal(runCli(['.', '--no-hooks', '--stack', 'go'], repo).code, 0)
+    assert.equal(baseOrderCopies(repo), 1)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('a symlink out of the repository is never written through', () => {
+  const repo = makeSandbox()
+  const outside = makeSandbox()
+  try {
+    symlinkSync(join(outside, 'pwned.md'), join(repo, 'CLAUDE.md'))
+    mkdirSync(join(repo, '.githooks'))
+    symlinkSync(join(outside, 'hook'), join(repo, '.githooks', 'pre-commit'))
+    symlinkSync(outside, join(repo, 'docs'))
+    const result = runCli(['.', '--name', 'demo'], repo)
+    assert.equal(result.code, 0, result.output)
+    assert.deepEqual(readdirSync(outside).filter(name => name !== '.git'), [], 'nothing may be created outside the repository')
+    // A dangling link is reported as what it is, not as a platform refusal.
+    assert.match(result.output, /kept\s+CLAUDE\.md\s+a dangling symlink/u)
+    assert.doesNotMatch(result.output, /symlink unavailable/u)
+    assert.match(result.output, /refused\s+\.githooks\/pre-commit\s+a dangling symlink/u)
+    assert.match(result.output, /refused\s+docs\/AGENTS\.md\s+a symlink at \S+ leading out of the repository/u)
+  } finally {
+    removeSandbox(repo)
+    removeSandbox(outside)
+  }
+})
+
+test('a re-run keeps a merged value edited by hand', () => {
+  const repo = scaffold(['--no-hooks', '--stack', 'go'])
+  try {
+    const gatesPath = join(repo, 'scripts', 'gates', 'gates.json')
+    const gates = JSON.parse(readFileSync(gatesPath, 'utf8'))
+    gates['verify-go-docstrings.mjs'].advisory = false
+    delete gates['verify-go-docstrings.mjs'].description
+    writeFileSync(gatesPath, `${JSON.stringify(gates, null, 2)}\n`, 'utf8')
+    const again = runCli(['.', '--no-hooks', '--stack', 'go'], repo)
+    assert.equal(again.code, 0, again.output)
+    assert.match(again.output, /merged\s+scripts\/gates\/gates\.json\s+\+ description in verify-go-docstrings\.mjs, kept advisory in verify-go-docstrings\.mjs as the file has them/u)
+    const after = JSON.parse(readFileSync(gatesPath, 'utf8'))['verify-go-docstrings.mjs']
+    assert.equal(after.advisory, false, 'a tightened gate stays tightened')
+    assert.equal(typeof after.description, 'string', 'a missing entry is still added')
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('the manifest records a layer added on a later run', () => {
+  const repo = scaffold(['--no-hooks'])
+  try {
+    const manifestPath = join(repo, '.agents', 'manifest.json')
+    const before = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    const again = runCli(['.', '--no-hooks', '--stack', 'python', '--with-architecture'], repo)
+    assert.equal(again.code, 0, again.output)
+    assert.match(again.output, /merged\s+\.agents\/manifest\.json\s+\+ python, architecture in layers/u)
+    const after = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    assert.deepEqual(after.layers, ['base', 'python', 'architecture'])
+    assert.deepEqual(after.stack, ['python'])
+    assert.equal(after.architecture, true)
+    assert.equal(after.adopted, before.adopted)
+    // A later run naming fewer layers removes none of them.
+    runCli(['.', '--no-hooks'], repo)
+    assert.deepEqual(JSON.parse(readFileSync(manifestPath, 'utf8')).layers, ['base', 'python', 'architecture'])
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('a dry run reports what the real run does', () => {
+  const args = ['--name', 'demo', '--no-hooks', '--stack', 'go', '--with-architecture']
+  const rows = output => output.split('\n').filter(row => /^ {2}[a-z]+ +\S/u.test(row) && !row.includes('dry run')).join('\n')
+  const dryRepo = makeSandbox()
+  const realRepo = makeSandbox()
+  try {
+    const dry = runCli(['.', ...args, '--dry-run'], dryRepo)
+    const real = runCli(['.', ...args], realRepo)
+    assert.equal(dry.code, 0, dry.output)
+    assert.match(dry.output, /appended\s+AGENTS\.md/u)
+    assert.equal(rows(dry.output), rows(real.output))
+  } finally {
+    removeSandbox(dryRepo)
+    removeSandbox(realRepo)
+  }
+})
+
+test('a merge target that is not a JSON object stops the run', () => {
+  const repo = scaffold(['--no-hooks'])
+  try {
+    const gatesPath = join(repo, 'scripts', 'gates', 'gates.json')
+    writeFileSync(gatesPath, '[]\n', 'utf8')
+    for (const extra of [[], ['--dry-run']]) {
+      const result = runCli(['.', '--no-hooks', '--stack', 'go', ...extra], repo)
+      assert.equal(result.code, 2)
+      assert.match(result.output, /gates\.json: the file holds an array, not a JSON object/u)
+    }
+    assert.equal(readFileSync(gatesPath, 'utf8'), '[]\n')
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('its own hook with CRLF endings is still its own', () => {
+  const repo = scaffold()
+  try {
+    const hook = join(repo, '.githooks', 'pre-commit')
+    writeFileSync(hook, readFileSync(hook, 'utf8').replace(/\n/gu, '\r\n'), 'utf8')
+    const again = runCli(['.'], repo)
+    assert.equal(again.code, 0, again.output)
+    assert.match(again.output, /kept\s+\.githooks\/pre-commit\s+already installed/u)
+    assert.doesNotMatch(again.output, /gates are not wired/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('core.hooksPath spelled another way is still .githooks', () => {
+  for (const spelling of ['./.githooks', '.githooks/', 'ABSOLUTE']) {
+    const repo = makeSandbox()
+    const emptyConfig = join(repo, 'no-global-config')
+    writeFileSync(emptyConfig, '', 'utf8')
+    const env = gitConfigEnv(emptyConfig)
+    try {
+      const value = spelling === 'ABSOLUTE' ? join(repo, '.githooks') : spelling
+      spawnSync('git', ['-C', repo, 'config', '--local', 'core.hooksPath', value], { env })
+      const result = spawnSync(process.execPath, [join(PACKAGE_ROOT, 'src', 'cli.mjs'), '.', '--name', 'demo'], { cwd: repo, encoding: 'utf8', env })
+      const output = `${result.stdout}${result.stderr}`
+      assert.equal(result.status, 0, output)
+      assert.doesNotMatch(output, /not activated/u, `${value} names the repository's own hook directory`)
+    } finally {
+      removeSandbox(repo)
+    }
+  }
+})
+
+test('refuses an unknown skill beside all', () => {
+  const repo = makeSandbox()
+  try {
+    const result = runCli(['.', '--skills', 'all,bogus'], repo)
+    assert.equal(result.code, 2)
+    assert.match(result.output, /unknown skill "bogus"/u)
   } finally {
     removeSandbox(repo)
   }

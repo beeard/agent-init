@@ -123,15 +123,17 @@ function parseCli(argv) {
   const chosen = values.skills === undefined
     ? BASE_SKILLS
     : values.skills.split(',').map(part => part.trim()).filter(Boolean)
-  const skills = chosen.includes('all') ? BASE_SKILLS : chosen
-  if (skills.length === 0) {
+  if (chosen.length === 0) {
     throw new Error(`no skills selected; available: ${BASE_SKILLS.join(', ')}, all`)
   }
-  for (const skill of skills) {
-    if (!BASE_SKILLS.includes(skill)) {
+  // Every entry is checked, `all` beside it included: a typo next to `all`
+  // is still a skill that does not exist.
+  for (const skill of chosen) {
+    if (skill !== 'all' && !BASE_SKILLS.includes(skill)) {
       throw new Error(`unknown skill "${skill}"; available: ${BASE_SKILLS.join(', ')}, all`)
     }
   }
+  const skills = chosen.includes('all') ? BASE_SKILLS : chosen
   const stack = [...new Set(values.stack ?? [])]
   for (const name of stack) {
     if (!STACKS.includes(name)) {
@@ -304,12 +306,13 @@ function main(argv) {
   } catch (error) {
     // A plan this tool cannot lay down, or a merge that cannot compose the
     // file's form with the template's, stops the run. Report it as a refusal
-    // rather than as a crash, and say what survived: once the plan is being
-    // applied, the actions before the failure have already been written, and a
-    // target described as untouched would be a second false report on top of
-    // the first.
+    // rather than as a crash, and say what survived. A refusal raised by the
+    // plan, or by the simulated pass that precedes every write, leaves the
+    // target untouched; a failure while writing does not, and a target
+    // described as untouched would be a second false report on top of the
+    // first.
     process.stderr.write(`agent-init: ${error instanceof Error ? error.message : String(error)}\n`)
-    process.stderr.write(plan === undefined
+    process.stderr.write(plan === undefined || error?.written === false
       ? `  Nothing was written to ${options.target}.\n`
       : `  Nothing further was written to ${options.target}; files written before the conflict are kept.\n`)
     return 2

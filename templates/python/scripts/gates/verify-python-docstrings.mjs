@@ -8,8 +8,11 @@
  * merely incomplete.
  *
  * "Public" means a name without a leading underscore, which is the convention
- * Python itself uses. `@overload` stubs are exempt: they carry no behavior and
- * their implementation carries the docstring.
+ * Python itself uses; the methods of a private class are private with it.
+ * `@overload` stubs are exempt: they carry no behavior and their implementation
+ * carries the docstring. Test files as pytest collects them (`test_*.py`,
+ * `*_test.py`, `conftest.py`) are not analyzed: a test's name is its
+ * documentation.
  *
  * `--staged` checks only the Python files staged for commit, which is how the
  * pre-commit hook uses it.
@@ -18,9 +21,14 @@
 import { readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { resolve } from 'node:path'
-import { collectFiles, isMain, readConfig, stagedSources, stagedSubset } from './lib/repo-files.mjs'
+import {
+  REPOSITORY_SKIP_DIRECTORIES, collectFiles, corpusSkipPredicate, isMain, readConfig, stagedSources, stagedSubset,
+} from './lib/repo-files.mjs'
 
 const ROOT = resolve(import.meta.dirname, '..', '..')
+
+/** Whether a path is a pytest test module or fixture file. */
+const isTestFile = relPath => /(?:^|\/)(?:test_[^/]*|[^/]*_test|conftest)\.py$/u.test(relPath)
 
 /**
  * The analysis program, run by the target repository's own interpreter.
@@ -48,9 +56,11 @@ def public_defs(body, inside_class):
             yield node, 'method' if inside_class else 'function'
         elif isinstance(node, ast.ClassDef):
             yield node, 'class'
-            # Methods of a public class are public API; a nested function is
-            # implementation detail and is never descended into.
-            yield from public_defs(node.body, True)
+            # Methods of a public class are public API; the members of a private
+            # class and a nested function are implementation detail and are
+            # never descended into.
+            if not node.name.startswith('_'):
+                yield from public_defs(node.body, True)
 
 findings = []
 for path in sys.argv[1:]:
@@ -103,8 +113,8 @@ function interpreter() {
 function selectFiles(root, stagedOnly) {
   const config = readConfig(resolve(root, 'scripts', 'gates', 'config.json'))
   const globs = config.pythonGlobs ?? ['**/*.py']
-  const excluded = new Set(config.pythonSkipDirectories ?? [])
-  const isSkipped = relPath => relPath.split('/').some(segment => excluded.has(segment))
+  const inSkippedRegion = corpusSkipPredicate(root, config, REPOSITORY_SKIP_DIRECTORIES)
+  const isSkipped = relPath => isTestFile(relPath) || inSkippedRegion(relPath)
   const corpus = collectFiles(root, globs, isSkipped)
   const entry = file => ({ abs: file.abs, relPath: file.realPath ?? file.relPath })
 

@@ -1,6 +1,6 @@
 ---
 name: {{SLUG}}-pre-push-checks
-description: Use before pushing, force-pushing, marking a change ready for review, or claiming checks pass in {{PROJECT}}, to select the smallest set of tests and gates that actually covers the outgoing change. Also covers history-rewriting pushes and what to verify after one.
+description: Use before pushing, force-pushing, or marking a change ready for review in {{PROJECT}}, to select the smallest set of tests and gates that actually covers the outgoing change. Also covers history-rewriting pushes and what to verify after one. Not needed for local work that will not be pushed; the Evidence orders in AGENTS.md cover reporting checks there.
 ---
 
 # Pre-push checks
@@ -44,7 +44,7 @@ There is no universal local baseline. Every behavior change needs the narrowest 
 
 If you cannot name the check that would fail for your regression, you have not finished the change.
 
-**Do not re-run a check that already passed** merely because a commit or push follows. The pre-push hook exists so you do not have to duplicate it by hand.
+**Do not re-run a check that already passed** merely because a commit or push follows; the pre-commit hook already re-runs the fast gates on every commit.
 
 ## 3. Read failures honestly
 

@@ -29,3 +29,7 @@ A run names the change that matters, and a re-run that writes what is already th
 The cost is that the detail is a list of phrases rather than a list of key names, so a merge touching many entries prints a longer line. The report is one line per file, and a merge wide enough to matter is rare.
 
 A second cost is that comparing by serialized value is order-sensitive for an object nested inside a shared value: the same entries in a different order read as a change. Every file this tool writes comes from one serializer, so its own output never triggers it, but a hand-edit that reordered a nested object's keys would report that entry as changed on the next merge.
+
+## Related
+
+A differing entry the file already held is now kept and reported as kept unless `--force`; see [A re-run keeps what the repository owns](2026-09-23-a-re-run-keeps-what-the-repository-owns.md), which partly supersedes the `changed` report described here.

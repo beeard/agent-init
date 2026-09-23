@@ -10,7 +10,7 @@ The session that surfaced this invoked the skill directly, without arguments, in
 
 ## Decision
 
-**The skill locates itself.** The coordinate file is written beside the installed `SKILL.md`, so the directory the agent loaded the skill from is itself the first place to look — whatever harness, whatever skills layout. The procedure now says to check that directory before running any shell, with the known paths (including `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills`) as the shell fallback.
+**The skill locates itself.** The coordinate file is written beside the installed skill directory, so the skills directory the agent loaded the skill from is itself the first place to look — whatever harness, whatever skills layout. The procedure now says to check that directory before running any shell, with the known paths (including `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills`) as the shell fallback.
 
 **The installers follow `CLAUDE_CONFIG_DIR`.** `userSkillsDir` and `install-local.mjs` derive the skills directory from the variable when it is set, so the skill is installed where a relocated session reads. `--skill-dir` still overrides both, and the default without the variable is unchanged.
 

@@ -1,6 +1,6 @@
 ---
 name: {{SLUG}}-code-review
-description: Use when reviewing a change in {{PROJECT}} — a pull request, a branch, or a working diff. Orients the reviewer to this repository's standards and to the checks that reading the code alone cannot show.
+description: Use when reviewing a change in {{PROJECT}} — a pull request, a branch, or a working diff. Orients the reviewer to this repository's standards and to the checks that reading the code alone cannot show. Not for choosing which checks to run before a push.
 ---
 
 # Code review
@@ -65,9 +65,9 @@ Rank by severity and put the most serious first. A review with twelve minor note
 
 If you find nothing, say so plainly. Manufacturing comments to appear thorough wastes the author's time and dilutes the ones that matter.
 
-## What not to do
+## What to leave out
 
-- Do not restate the diff back to the author.
-- Do not ask for a change the repository's own standards do not require. Cite the rule or drop the comment.
-- Do not block on style a formatter or linter already enforces — check whether the gate would catch it first.
-- Do not review the change you would have written. Review the change that was written, against the standards the repository actually holds.
+- A summary of the diff; the author already has it.
+- A request the repository's own standards do not require. Cite the rule or drop the comment.
+- Style a formatter or linter already enforces — check whether the gate would catch it first.
+- The change you would have written. Review the change that was written, against the standards the repository actually holds.

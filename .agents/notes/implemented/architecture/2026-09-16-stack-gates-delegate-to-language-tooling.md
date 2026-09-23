@@ -56,3 +56,7 @@ The cost is that these gates are the only part of the package that needs somethi
 A second cost is that the Rust gate is slower than every other gate by an order of magnitude, and its placement in `full` means a Rust repository's pre-commit hook does not catch an undocumented item. The finding arrives at push instead. That is the honest trade for a hook that keeps running.
 
 A third cost is uneven coverage across languages. Python, Go, and TypeScript check every declaration form the gate can enumerate; Rust reports what rustc reports, which is the crate's publicly reachable API and nothing else — an orphan `.rs` file the crate never declares is invisible, because it is not part of the crate. That is Rust's own module rule rather than a gap in the gate, and a test pins it so the behavior is recorded rather than rediscovered.
+
+## Related
+
+The Rust gate no longer checks for the lint attribute; it passes the lint to the compiler itself. See [The Rust gate hands the lint to the compiler](../bug-fix/2026-09-23-the-rust-gate-hands-the-lint-to-the-compiler.md), which partly supersedes this record's Rust paragraphs.

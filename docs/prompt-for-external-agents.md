@@ -36,9 +36,9 @@ You have no prior knowledge of this tool. Do not improvise a substitute: a hand-
 
 ## 1. Find the tool
 
-The tool is attached as a tarball, agent-init-0.1.0.tgz, in the same place attachments are delivered to you, or at a path the user gives you. It is not on npm and there is no public repository to clone; if you cannot find the tarball, stop and ask the user for the path rather than looking for it online.
+The tool is attached as a tarball, agent-init-0.1.2.tgz, in the same place attachments are delivered to you, or at a path the user gives you. It is not on npm and there is no public repository to clone; if you cannot find the tarball, stop and ask the user for the path rather than looking for it online.
 
-    mkdir -p /tmp/agent-init && tar -xzf <path-to>/agent-init-0.1.0.tgz -C /tmp/agent-init
+    mkdir -p /tmp/agent-init && tar -xzf <path-to>/agent-init-0.1.2.tgz -C /tmp/agent-init
     node /tmp/agent-init/package/src/cli.mjs --help
 
 Requirements: Node 20.11 or newer, Git, and a shell. The tool has zero runtime dependencies and needs no install step — the packed tree carries its own templates. Confirm the --help output lists the options named below before going further; if it does not, the tarball is not what this prompt expects, so say so instead of adapting.
@@ -121,7 +121,7 @@ Ask before doing it: it writes outside the repository.
 From this clone:
 
 ```sh
-npm pack --pack-destination /tmp            # → /tmp/agent-init-0.1.0.tgz
+npm pack --pack-destination /tmp            # → /tmp/agent-init-0.1.2.tgz
 ```
 
 The version in `package.json` is what names the file, so the name in the prompt has to move with a version bump. Worth pinning deliberately: an agent that cannot find the exact filename it was told to look for should stop and ask, and that failure is easier to diagnose than a silent fallback to a stale copy.

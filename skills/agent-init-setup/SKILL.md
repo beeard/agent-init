@@ -1,6 +1,6 @@
 ---
 name: agent-init-setup
-description: Set up the agent-operating structure in a project with agent-init — standing orders in AGENTS.md, decision records, skills, and the gates that enforce them. Use when the user wants to set up the project, make the repo agent-ready, add rules and checks, start a new project properly, or wants an agent to have written rules to follow in a repository, including when an existing repository should adopt the structure. Picks the language profiles from what the repository actually contains. Do not use on a repository that already has `.agents/manifest.json` — it is already set up, and a re-run is only worth it to add a layer. Triggers: agent-init, scaffold, set up project, agent-ready, standing orders, AGENTS.md, decision records, gates, new project.
+description: Set up the agent-operating structure in a project with agent-init — standing orders in AGENTS.md, decision records, skills, and the gates that enforce them. Use when the user asks to run agent-init, to make a new or existing repository agent-ready, or to give agents written rules and the checks that enforce them. Picks the language profiles from what the repository actually contains. Not for editing the AGENTS.md, gates, or records of a repository that already has `.agents/manifest.json` — that repository is set up, and a run is only worth it to add a layer. Not for scaffolding an application framework on its own.
 ---
 
 # Set up a project with agent-init
@@ -9,9 +9,9 @@ The tool writes a self-contained tree into the repository: `AGENTS.md` with stan
 
 ## Find the tool
 
-It is run from a clone, from a linked command, or through `npx`. Check the coordinate this skill was installed with, then the local checks, in that order:
+It is run from a clone, from a linked command, or through `npx`. Check the coordinate this skill was installed with first, then a local install.
 
-The coordinate file sits **beside this SKILL.md file** — check the directory this skill was loaded from first, whatever agent or skills layout it is:
+The coordinate file, `agent-init-setup.json`, sits beside this skill's directory — in the skills directory this skill was loaded from, whatever agent or layout that is. Look there before running any shell; the loop below is the fallback for when you hold only the skill's text:
 
 ```sh
 for f in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/agent-init-setup.json" \
@@ -20,8 +20,6 @@ for f in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/agent-init-setup.json" \
   if [ -f "$f" ]; then cat "$f"; break; fi
 done
 ```
-
-In practice you already know the directory you read this file from: look there for `agent-init-setup.json` before running any shell. The `for` loop is the fallback for when you only hold the skill's text.
 
 The coordinate file is written when the skill is installed from a package, and its `npx` field is the exact specifier to run — package name and version together. Use that specifier and never an unpinned `npx`, which upgrades silently mid-run.
 
@@ -110,7 +108,7 @@ agent-init . --name "<Project Name>" --stack <a> [--stack <b>] [--lenient]
 
 When it reports findings on an existing config, **ask before editing**. Say which options are missing or differ and why they matter, then apply them only on a yes. Edit the file in place so its comments survive — never round-trip it through a JSON writer, and never narrow `strict` or `include` to make a finding go away.
 
-**The generator runs before this tool** — the ordering rule above, applied here with the most at stake. A generator such as `create-next-app` writes its own `tsconfig.json` and `package.json`, and one run on an empty directory would have those replace what the tool wrote. Run the generator first: the tool then finds the configuration, leaves it alone, and reports what it does not set. That report is the decision to make, not an error to clear.
+The generator-first order above matters most here: a generator such as `create-next-app` writes its own `tsconfig.json` and `package.json`. Run after it, the tool finds that configuration, leaves it alone, and reports what it does not set — a decision to make, not an error to clear.
 
 ## Afterwards
 
@@ -134,5 +132,4 @@ Do not point `core.hooksPath` at `.githooks` to "fix" this without asking. Git h
 ## What not to do
 
 - **Do not rewrite `AGENTS.md`.** It is deliberately generic. The user makes it theirs; the tool has already added what is right for the languages and the architecture.
-- **Do not run `--force`.** It overwrites files the user has edited. If an update is needed, ask first.
-- **Do not re-run to update.** A re-run keeps existing files, so it changes nothing without `--force` — it is safe, not useful.
+- **Do not run `--force`.** It overwrites files the user has edited. A re-run without it keeps existing files, so it is safe but changes nothing; if an update is needed, ask first.

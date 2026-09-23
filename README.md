@@ -60,12 +60,12 @@ The hook does not displace anything: an existing `.githooks/pre-commit` is kept 
 | `--with-architecture` | Add the composition discipline (below). |
 | `--lenient` | Mark every gate advisory, for adopting an existing repository. |
 | `--no-hooks` | Do not install the pre-commit hook |
-| `--force` | Overwrite files that already exist. |
+| `--force` | Overwrite existing files. |
 | `--dry-run` | Print the plan, write nothing. |
 | `--allow-non-git` | Scaffold outside a Git worktree. |
 | `--install-skill` | Install the setup skill instead of scaffolding; `--link`, `--skill-dir`. |
 
-Re-running keeps existing files unless `--force`.
+Re-running keeps files and edited JSON values unless `--force`.
 
 ## The layers
 
@@ -81,7 +81,7 @@ The gate in every profile **delegates to the language's own tooling** rather tha
 |---|---|---|
 | `python` | `verify-python-docstrings.mjs` | Python's `ast` module, in a subprocess |
 | `go` | `verify-go-docstrings.mjs` | `go/parser` and `go/ast`, via `go run` |
-| `rust` | `verify-rust-doc-comments.mjs` | rustc's built-in `missing_docs` lint, via `cargo check` |
+| `rust` | `verify-rust-doc-comments.mjs` | rustc's built-in `missing_docs` lint, via `cargo rustc` |
 | `typescript` | `verify-typescript-doc-comments.mjs` | the `typescript` package from your own `node_modules` |
 | `typescript` | `verify-typescript-types.mjs` | the project's own `tsc --noEmit`, against its `tsconfig.json` |
 
@@ -89,7 +89,7 @@ Every stack gate ships **advisory**: it reports findings without failing the run
 
 Two of them need something before they can run, and say so when it is missing:
 
-- **Rust** needs `#![warn(missing_docs)]` in each crate root. The lint is built into rustc, so the compiler already has the check — but it only fires when the crate enables it, and a gate that reports a clean run because its own check was silently disabled is worse than no gate. Add the attribute; the gate fails loud until you do.
+- **Rust** needs nothing in the crate: the gate passes `-W missing_docs` to the compiler for every target of every workspace member, so a commented-out attribute cannot switch it off. A crate that does not compile fails the gate.
 - **TypeScript** needs `typescript` resolvable from your repository, which any TypeScript project already has. It is your dependency, not this package's.
 
 **`--stack typescript` also initialises the project.** A repository with no `tsconfig.json` gets the strict ESM config the standing orders describe, and a `package.json` (if it had none) declaring `typescript`, `typecheck`, and the gate scripts — run `npm install` afterwards. An existing `tsconfig.json` is left alone unless `--force`: the run reports every option the orders assume but the file does not set or sets differently. `verify-typescript-types` needs both a config and the compiler, and names whichever is missing.
@@ -124,7 +124,7 @@ node scripts/gates/run.mjs --list          # what would run, and when
 node scripts/gates/change-scope.mjs --base origin/main
 ```
 
-Gates in the `commit` group receive `--staged`, which restricts them to the files staged for commit. That is how the hook catches a wrapped paragraph or an undocumented function when it is introduced, without scanning the repository on every commit.
+Gates in the `commit` group run against a checkout of the index and receive `--staged`, so they judge exactly the staged content of the staged files. That is how the hook catches a wrapped paragraph or an undocumented function when it is introduced, without scanning the repository on every commit.
 
 `change-scope` reports what a change actually touches — committed paths against a merge base, plus staged, unstaged, and untracked ones — so an agent can pick the evidence the change needs instead of running everything. It never guesses or fetches a base.
 

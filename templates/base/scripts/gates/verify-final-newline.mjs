@@ -7,7 +7,9 @@
  * that follows it.
  *
  * The check is byte-level and does not parse anything, so it applies to every
- * text format the repository holds rather than to one language.
+ * text format the repository holds rather than to one language. A line ending
+ * is LF or CRLF, and the rule counts endings in either style: `x\r\n` passes,
+ * `x\r\n\r\n` and `x\n\r\n` do not.
  *
  * The corpus is the built-in text globs plus every glob the configuration
  * declares, and a declaration can only widen it. The rule is about every file
@@ -79,10 +81,12 @@ function checkFile(file) {
     return null
   }
   if (text === '') return null
-  if (!text.endsWith('\n')) {
+  // LF and CRLF are both one line ending; the count is what the rule judges.
+  const endings = /(?:\r?\n)+$/u.exec(text)?.[0].match(/\r?\n/gu).length ?? 0
+  if (endings === 0) {
     return { relPath: file.relPath, reason: 'no trailing newline' }
   }
-  if (text.endsWith('\n\n')) {
+  if (endings > 1) {
     return { relPath: file.relPath, reason: 'more than one trailing newline' }
   }
   return null

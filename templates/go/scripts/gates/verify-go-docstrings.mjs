@@ -14,6 +14,9 @@
  * constructor can return that type and the method is then callable from outside
  * the package.
  *
+ * A `_test.go` file is not analyzed. Go compiles it only into the test binary,
+ * so nothing in it is part of the package another package imports.
+ *
  * `--staged` checks only the Go files staged for commit, which is how the
  * pre-commit hook uses it. The package-comment rule is answered from the whole
  * directory rather than the staged subset, since a package comment
@@ -26,7 +29,9 @@
 import { readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
-import { collectFiles, isMain, readConfig, stagedSources, stagedSubset } from './lib/repo-files.mjs'
+import {
+  REPOSITORY_SKIP_DIRECTORIES, collectFiles, corpusSkipPredicate, isMain, readConfig, stagedSources, stagedSubset,
+} from './lib/repo-files.mjs'
 
 const ROOT = resolve(import.meta.dirname, '..', '..')
 
@@ -57,8 +62,8 @@ function toolchain() {
 function selectFiles(root, stagedOnly) {
   const config = readConfig(resolve(root, 'scripts', 'gates', 'config.json'))
   const globs = config.goGlobs ?? ['**/*.go']
-  const excluded = new Set(config.goSkipDirectories ?? [])
-  const isSkipped = relPath => relPath.split('/').some(segment => excluded.has(segment))
+  const inSkippedRegion = corpusSkipPredicate(root, config, REPOSITORY_SKIP_DIRECTORIES)
+  const isSkipped = relPath => relPath.endsWith('_test.go') || inSkippedRegion(relPath)
   const corpus = collectFiles(root, globs, isSkipped)
   const entry = file => ({ abs: file.abs, relPath: file.realPath ?? file.relPath })
 

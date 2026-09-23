@@ -27,6 +27,7 @@ function available(command, args) {
 
 const HAS_GO = available('go', ['version'])
 const HAS_CARGO = available('cargo', ['--version'])
+const HAS_PYTHON = ['python3', 'python'].some(candidate => available(candidate, ['-c', 'import ast']))
 
 /**
  * The TypeScript compiler's package directory, when one is installed where a
@@ -132,17 +133,162 @@ test('go: a missing toolchain fails loud with the way out', () => {
   }
 })
 
-test('rust: an unenabled lint fails loud rather than reporting a clean run', { skip: !HAS_CARGO && 'cargo is not installed' }, () => {
+test('go: test files are not public API and are not analyzed', { skip: !HAS_GO && 'go is not installed' }, () => {
+  const repo = scaffold(['--name', 'demo', '--stack', 'go', '--no-hooks'])
+  try {
+    write(repo, 'go.mod', 'module example.com/demo\n\ngo 1.22\n')
+    write(repo, 'demo/demo.go', '// Package demo holds code.\npackage demo\n\n// Add adds.\nfunc Add() int { return 1 }\n')
+    write(repo, 'demo/demo_test.go', 'package demo\n\nimport "testing"\n\nfunc TestAdd(t *testing.T) {}\n')
+    // An external test package has no package comment by convention.
+    write(repo, 'demo/external_test.go', 'package demo_test\n\nimport "testing"\n\nfunc TestExternal(t *testing.T) {}\n')
+    const result = runGate(repo, 'verify-go-docstrings.mjs')
+    assert.equal(result.code, 0, result.output)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('go: a skipped region is outside the corpus', { skip: !HAS_GO && 'go is not installed' }, () => {
+  const repo = scaffold(['--name', 'demo', '--stack', 'go', '--no-hooks'])
+  try {
+    write(repo, 'go.mod', 'module example.com/demo\n\ngo 1.22\n')
+    write(repo, 'node_modules/tool/tool.go', 'package tool\n\nfunc Exported() {}\n')
+    write(repo, 'generated/gen.go', 'package generated\n\nfunc Generated() {}\n')
+    const configPath = join(repo, 'scripts', 'gates', 'config.json')
+    const config = JSON.parse(readFileSync(configPath, 'utf8'))
+    config.skipGlobs = [...config.skipGlobs, 'generated/**']
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8')
+    const passed = runGate(repo, 'verify-go-docstrings.mjs')
+    assert.equal(passed.code, 0, passed.output)
+
+    // The same file outside those regions is judged, so the pass above is the
+    // skip list at work rather than a gate that saw nothing.
+    write(repo, 'tool/tool.go', 'package tool\n\nfunc Exported() {}\n')
+    const failed = runGate(repo, 'verify-go-docstrings.mjs')
+    assert.equal(failed.code, 1)
+    assert.match(failed.output, /tool\/tool\.go.*function Exported/u)
+    assert.doesNotMatch(failed.output, /node_modules|generated/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('python: the members of a private class are private with it', { skip: !HAS_PYTHON && 'python is not installed' }, () => {
+  const repo = scaffold(['--name', 'demo', '--stack', 'python', '--no-hooks'])
+  try {
+    write(repo, 'mod.py', '"""Module."""\n\nclass _Hidden:\n    def helper(self):\n        pass\n')
+    assert.equal(runGate(repo, 'verify-python-docstrings.mjs').code, 0)
+
+    write(repo, 'mod.py', '"""Module."""\n\nclass Shown:\n    """Shown."""\n\n    def helper(self):\n        pass\n')
+    const result = runGate(repo, 'verify-python-docstrings.mjs')
+    assert.equal(result.code, 1)
+    assert.match(result.output, /method helper/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('python: pytest test files are not analysed', { skip: !HAS_PYTHON && 'python is not installed' }, () => {
+  const repo = scaffold(['--name', 'demo', '--stack', 'python', '--no-hooks'])
+  try {
+    write(repo, 'tests/test_mod.py', 'def test_adds():\n    pass\n')
+    write(repo, 'mod_test.py', 'def test_adds():\n    pass\n')
+    write(repo, 'tests/conftest.py', 'def fixture():\n    pass\n')
+    const passed = runGate(repo, 'verify-python-docstrings.mjs')
+    assert.equal(passed.code, 0, passed.output)
+
+    // A module that only resembles a test name is still judged.
+    write(repo, 'testing_utils.py', 'def helper():\n    pass\n')
+    const failed = runGate(repo, 'verify-python-docstrings.mjs')
+    assert.equal(failed.code, 1)
+    assert.match(failed.output, /testing_utils\.py/u)
+    assert.doesNotMatch(failed.output, /test_mod|mod_test|conftest/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('python: a skipped region is outside the corpus', { skip: !HAS_PYTHON && 'python is not installed' }, () => {
+  const repo = scaffold(['--name', 'demo', '--stack', 'python', '--no-hooks'])
+  try {
+    write(repo, 'node_modules/tool/tool.py', 'def exported():\n    pass\n')
+    write(repo, 'generated/gen.py', 'def generated():\n    pass\n')
+    const configPath = join(repo, 'scripts', 'gates', 'config.json')
+    const config = JSON.parse(readFileSync(configPath, 'utf8'))
+    config.skipGlobs = [...config.skipGlobs, 'generated/**']
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8')
+    const passed = runGate(repo, 'verify-python-docstrings.mjs')
+    assert.equal(passed.code, 0, passed.output)
+
+    write(repo, 'tool/tool.py', 'def exported():\n    pass\n')
+    const failed = runGate(repo, 'verify-python-docstrings.mjs')
+    assert.equal(failed.code, 1)
+    assert.match(failed.output, /tool\/tool\.py.*function exported/u)
+    assert.doesNotMatch(failed.output, /node_modules|generated/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('rust: a crate that never enables the lint is still checked', { skip: !HAS_CARGO && 'cargo is not installed' }, () => {
   const repo = scaffold(['--name', 'demo', '--stack', 'rust', '--no-hooks'])
   try {
     write(repo, 'Cargo.toml', '[package]\nname = "demo"\nversion = "0.1.0"\nedition = "2021"\n')
-    write(repo, 'src/lib.rs', '//! Demo.\n\npub fn undocumented() {}\n')
+    // A commented-out attribute enables nothing; the gate passes the lint to
+    // the compiler itself, so the crate is judged anyway.
+    write(repo, 'src/lib.rs', '//! Demo.\n// #![warn(missing_docs)]\n\npub fn undocumented() {}\n')
     const result = runGate(repo, 'verify-rust-doc-comments.mjs')
-    assert.equal(result.code, 1)
-    // Without the attribute the lint produces nothing, and an empty report
-    // would read as a pass.
-    assert.match(result.output, /missing_docs lint is not enabled/u)
-    assert.match(result.output, /src\/lib\.rs/u)
+    assert.equal(result.code, 1, result.output)
+    assert.match(result.output, /pub fn undocumented\(\)/u)
+
+    // An attribute that enables the lint alongside another is not misread.
+    write(repo, 'src/lib.rs', '//! Demo.\n#![warn(missing_docs, unused)]\n\n/// Documented.\npub fn documented() {}\n')
+    const passed = runGate(repo, 'verify-rust-doc-comments.mjs')
+    assert.equal(passed.code, 0, passed.output)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('rust: a crate that does not compile fails loud with the compiler error', { skip: !HAS_CARGO && 'cargo is not installed' }, () => {
+  const repo = scaffold(['--name', 'demo', '--stack', 'rust', '--no-hooks'])
+  try {
+    write(repo, 'Cargo.toml', '[package]\nname = "demo"\nversion = "0.1.0"\nedition = "2021"\n')
+    write(repo, 'src/lib.rs', '//! Demo.\n\n/// Documented.\npub fn documented() -> u32 { "not a number" }\n')
+    const result = runGate(repo, 'verify-rust-doc-comments.mjs')
+    assert.equal(result.code, 1, result.output)
+    assert.match(result.output, /does not compile/u)
+    assert.match(result.output, /E0308/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('rust: a denied lint is reported as findings, not as a compile failure', { skip: !HAS_CARGO && 'cargo is not installed' }, () => {
+  const repo = scaffold(['--name', 'demo', '--stack', 'rust', '--no-hooks'])
+  try {
+    write(repo, 'Cargo.toml', '[package]\nname = "demo"\nversion = "0.1.0"\nedition = "2021"\n')
+    write(repo, 'src/lib.rs', '//! Demo.\n#![deny(missing_docs)]\n\npub fn undocumented() {}\n')
+    const result = runGate(repo, 'verify-rust-doc-comments.mjs')
+    assert.equal(result.code, 1, result.output)
+    assert.match(result.output, /pub fn undocumented\(\)/u)
+    assert.doesNotMatch(result.output, /does not compile/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('rust: every workspace member is checked, not only the root package', { skip: !HAS_CARGO && 'cargo is not installed' }, () => {
+  const repo = scaffold(['--name', 'demo', '--stack', 'rust', '--no-hooks'])
+  try {
+    write(repo, 'Cargo.toml', '[package]\nname = "demo"\nversion = "0.1.0"\nedition = "2021"\n\n[workspace]\nmembers = ["member"]\n')
+    write(repo, 'src/lib.rs', '//! Demo.\n\n/// Documented.\npub fn documented() {}\n')
+    write(repo, 'member/Cargo.toml', '[package]\nname = "member"\nversion = "0.1.0"\nedition = "2021"\n')
+    write(repo, 'member/src/lib.rs', '//! Member.\n\npub fn hidden() {}\n')
+    const result = runGate(repo, 'verify-rust-doc-comments.mjs')
+    assert.equal(result.code, 1, result.output)
+    assert.match(result.output, /member\/src\/lib\.rs:3/u)
+    assert.match(result.output, /pub fn hidden\(\)/u)
   } finally {
     removeSandbox(repo)
   }
@@ -200,6 +346,93 @@ test('typescript: an export assignment is reported, not a crash', { skip: TYPESC
 
     write(repo, 'src/provider.ts', 'const provider = { id: "demo" }\n\n/** The provider this module exports. */\nexport default provider\n')
     assert.equal(runGate(repo, 'verify-typescript-doc-comments.mjs').code, 0)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+/**
+ * Scaffold a TypeScript repository whose `node_modules` links a real compiler.
+ * @returns Absolute repository path.
+ */
+function typescriptRepo() {
+  const repo = scaffold(['--name', 'demo', '--stack', 'typescript', '--no-hooks'])
+  mkdirSync(join(repo, 'node_modules'), { recursive: true })
+  symlinkSync(TYPESCRIPT, join(repo, 'node_modules', 'typescript'), 'dir')
+  return repo
+}
+
+test('typescript: an undocumented exported function and class are reported', { skip: TYPESCRIPT === null && 'no typescript with the compiler API is installed' }, () => {
+  const repo = typescriptRepo()
+  try {
+    write(repo, 'src/index.ts', '/** Adds. */\nexport function add(a: number): number { return a }\n\n/** A store. */\nexport class Store {}\n\nfunction internal(): void {}\n')
+    const passed = runGate(repo, 'verify-typescript-doc-comments.mjs')
+    assert.equal(passed.code, 0, passed.output)
+
+    write(repo, 'src/index.ts', 'export function add(a: number): number { return a }\n\nexport class Store {}\n\nfunction internal(): void {}\n')
+    const result = runGate(repo, 'verify-typescript-doc-comments.mjs')
+    assert.equal(result.code, 1, result.output)
+    assert.match(result.output, /src\/index\.ts:1 {2}function add/u)
+    assert.match(result.output, /src\/index\.ts:3 {2}class Store/u)
+    assert.doesNotMatch(result.output, /internal/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('typescript: the JSDoc on the first overload covers the group', { skip: TYPESCRIPT === null && 'no typescript with the compiler API is installed' }, () => {
+  const repo = typescriptRepo()
+  try {
+    const signatures = 'export function fmt(a: string): string\nexport function fmt(a: number): string\nexport function fmt(a: unknown): string { return String(a) }\n'
+    write(repo, 'src/index.ts', `/** Formats a value. */\n${signatures}`)
+    const passed = runGate(repo, 'verify-typescript-doc-comments.mjs')
+    assert.equal(passed.code, 0, passed.output)
+
+    // An undocumented group is one finding, not one per signature.
+    write(repo, 'src/index.ts', signatures)
+    const result = runGate(repo, 'verify-typescript-doc-comments.mjs')
+    assert.equal(result.code, 1, result.output)
+    assert.match(result.output, /1 undocumented exported declaration/u)
+    assert.match(result.output, /src\/index\.ts:1 {2}function fmt/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('typescript: a namespace with a dotted name is walked', { skip: TYPESCRIPT === null && 'no typescript with the compiler API is installed' }, () => {
+  const repo = typescriptRepo()
+  try {
+    write(repo, 'src/index.ts', '/** Outer. */\nexport namespace A.B {\n  export function hidden(): void {}\n}\n')
+    const result = runGate(repo, 'verify-typescript-doc-comments.mjs')
+    assert.equal(result.code, 1, result.output)
+    assert.match(result.output, /function hidden/u)
+    assert.doesNotMatch(result.output, /namespace/u)
+
+    write(repo, 'src/index.ts', 'export namespace A.B {\n  /** Documented. */\n  export function shown(): void {}\n}\n')
+    const named = runGate(repo, 'verify-typescript-doc-comments.mjs')
+    assert.equal(named.code, 1, named.output)
+    assert.match(named.output, /namespace A\.B/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+test('typescript: the shared skip globs are outside the corpus', { skip: TYPESCRIPT === null && 'no typescript with the compiler API is installed' }, () => {
+  const repo = typescriptRepo()
+  try {
+    write(repo, 'generated/api.ts', 'export function generated(): void {}\n')
+    const configPath = join(repo, 'scripts', 'gates', 'config.json')
+    const config = JSON.parse(readFileSync(configPath, 'utf8'))
+    config.skipGlobs = [...config.skipGlobs, 'generated/**']
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8')
+    const passed = runGate(repo, 'verify-typescript-doc-comments.mjs')
+    assert.equal(passed.code, 0, passed.output)
+
+    write(repo, 'src/api.ts', 'export function generated(): void {}\n')
+    const failed = runGate(repo, 'verify-typescript-doc-comments.mjs')
+    assert.equal(failed.code, 1)
+    assert.match(failed.output, /src\/api\.ts/u)
+    assert.doesNotMatch(failed.output, /generated\/api\.ts/u)
   } finally {
     removeSandbox(repo)
   }

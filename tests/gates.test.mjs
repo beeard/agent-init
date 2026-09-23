@@ -11,7 +11,8 @@ import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
-import { removeSandbox, runGate, runSuite, scaffold, PACKAGE_ROOT } from './helpers.mjs'
+import { pathToFileURL } from 'node:url'
+import { gitConfigEnv, removeSandbox, runGate, runSuite, scaffold, PACKAGE_ROOT } from './helpers.mjs'
 
 /**
  * How many gates the shipped manifest registers in one group.
@@ -82,6 +83,14 @@ function writeRecord(repo, relPath, content) {
   writeFileSync(abs, content, 'utf8')
 }
 
+/**
+ * Stage every file in a scaffolded repository, as a first commit would.
+ * @param repo - Absolute repository path.
+ */
+function stageAll(repo) {
+  assert.equal(spawnSync('git', ['-C', repo, 'add', '-A'], { encoding: 'utf8' }).status, 0)
+}
+
 test('a freshly scaffolded repository passes every gate', () => {
   withRepo({ args: ['--with-architecture'] }, (repo) => {
     const result = runSuite(repo)
@@ -92,6 +101,7 @@ test('a freshly scaffolded repository passes every gate', () => {
 
 test('the commit group runs a strict subset', () => {
   withRepo({}, (repo) => {
+    stageAll(repo)
     const result = runSuite(repo, 'commit')
     assert.equal(result.code, 0, result.output)
     assert.match(result.output, new RegExp(`\\b${registeredGates('commit')} gate\\(s\\) passed`, 'u'))
@@ -655,7 +665,8 @@ test('--staged never judges a file the repository run would not', () => {
       { cwd: repo, encoding: 'utf8' })
     assert.equal(staged.status, 0, staged.stdout + staged.stderr)
     assert.match(staged.stdout, /0 file\(s\) checked/u)
-    // The suite the hook runs must therefore pass on the same working tree.
+    // The suite the hook runs must therefore pass on the same index.
+    stageAll(repo)
     assert.equal(runSuite(repo, 'commit').code, 0)
   })
 })
@@ -711,6 +722,7 @@ test('--staged judges only the files the whole-repository run judges', () => {
     const staged = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'verify-md-wrap.mjs'), '--staged'],
       { cwd: repo, encoding: 'utf8' })
     assert.equal(staged.status, 0, staged.stdout + staged.stderr)
+    stageAll(repo)
     assert.equal(runSuite(repo, 'commit').code, 0)
   })
 })
@@ -747,6 +759,245 @@ test('the python gate bounds a staged run to its configured corpus', { skip: !HA
       { cwd: repo, encoding: 'utf8' })
     assert.equal(caught.status, 1)
     assert.match(caught.stderr, /src\/bare\.py/u)
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+// Fences close per CommonMark: the same character, at least as long as the
+// opening run, with no info string. A scanner that closes on the character
+// alone swaps code and prose for the rest of the document.
+
+/** A fence whose inner line looks like a closing fence but carries an info string. */
+const FALSE_CLOSE = '# Title\n\n```\n``` not a close\ncode\n```\n\n'
+
+test('a wrapped paragraph after a fence with a false close is rejected', () => {
+  withRepo({}, (repo) => {
+    writeFileSync(join(repo, 'docs', 'fence.md'), `${FALSE_CLOSE}first line\nsecond line.\n`, 'utf8')
+    const result = runGate(repo, 'verify-md-wrap.mjs')
+    assert.equal(result.code, 1, result.output)
+    assert.match(result.output, /docs\/fence\.md:9/u)
+  })
+})
+
+test('a broken link after a fence with a false close is rejected', () => {
+  withRepo({}, (repo) => {
+    writeFileSync(join(repo, 'docs', 'fence.md'), `${FALSE_CLOSE}[gone](nope.md)\n`, 'utf8')
+    const result = runGate(repo, 'verify-md-links.mjs')
+    assert.equal(result.code, 1, result.output)
+    assert.match(result.output, /docs\/fence\.md:8\s+nope\.md/u)
+  })
+})
+
+test('a shorter fence inside a longer one stays code', () => {
+  withRepo({}, (repo) => {
+    writeFileSync(join(repo, 'docs', 'fence.md'),
+      '# Title\n\n````md\n```\nwrapped\nexample\n[gone](nope.md)\n```\n````\n\n~~~\n```\n~~~\n', 'utf8')
+    assert.equal(runGate(repo, 'verify-md-wrap.mjs').code, 0)
+    assert.equal(runGate(repo, 'verify-md-links.mjs').code, 0)
+  })
+})
+
+test('a record may show a heading inside a nested fence', () => {
+  const example = '\n````markdown\n```\n## Proposal\n```\n````\n'
+  withRepo({ mutate: repo => writeRecord(repo, 'implemented/architecture/2026-01-01-good.md', GOOD_RECORD + example) },
+    (repo) => {
+      const result = runGate(repo, 'verify-agent-note-format.mjs')
+      assert.equal(result.code, 0, result.output)
+    })
+})
+
+test('a record whose fence closes falsely is judged on what follows', () => {
+  const example = '\n```\n``` md\n```\n\n## Proposal\n\nA leftover plan.\n'
+  withRepo({ mutate: repo => writeRecord(repo, 'implemented/architecture/2026-01-01-good.md', GOOD_RECORD + example) },
+    (repo) => {
+      const result = runGate(repo, 'verify-agent-note-format.mjs')
+      assert.equal(result.code, 1, result.output)
+      assert.match(result.output, /proposal-era heading/u)
+    })
+})
+
+// Link forms beyond `[text](path)`: every one of these names a file, so a
+// broken target is rejected whichever form it is written in.
+
+test('every inline link form is resolved', () => {
+  withRepo({}, (repo) => {
+    writeFileSync(join(repo, 'docs', 'has space.md'), '# x\n', 'utf8')
+    writeFileSync(join(repo, 'docs', 'paren(1).md'), '# x\n', 'utf8')
+    writeFileSync(join(repo, 'docs', 'forms.md'), [
+      '# Title', '',
+      "[single](AGENTS.md 'title') [paren](AGENTS.md (title)) [angle](<has space.md>) [balanced](paren(1).md)",
+      '[![badge](AGENTS.md)](AGENTS.md "title")', '',
+    ].join('\n'), 'utf8')
+    assert.equal(runGate(repo, 'verify-md-links.mjs').code, 0)
+
+    writeFileSync(join(repo, 'docs', 'forms.md'), [
+      '# Title', '',
+      "[single](gone-single.md 'title')", '',
+      '[paren](gone-paren.md (title))', '',
+      '[angle](<gone angle.md>)', '',
+      '[balanced](gone(1).md)', '',
+      '[![badge](gone-badge.svg)](AGENTS.md)', '',
+    ].join('\n'), 'utf8')
+    const result = runGate(repo, 'verify-md-links.mjs')
+    assert.equal(result.code, 1)
+    for (const [line, target] of [[3, 'gone-single\\.md'], [5, 'gone-paren\\.md'], [7, 'gone angle\\.md'],
+      [9, 'gone\\(1\\)\\.md'], [11, 'gone-badge\\.svg']]) {
+      assert.match(result.output, new RegExp(`docs/forms\\.md:${line}\\s+${target} —`, 'u'))
+    }
+  })
+})
+
+test('a reference definition with a broken target is rejected', () => {
+  withRepo({}, (repo) => {
+    writeFileSync(join(repo, 'docs', 'refs.md'),
+      '# Title\n\nSee [full][good], [collapsed][], and [bad].\n\n[good]: ../AGENTS.md\n[collapsed]: <../AGENTS.md> "t"\n[bad]: gone.md\n[^1]: a footnote, not a link\n',
+      'utf8')
+    const result = runGate(repo, 'verify-md-links.mjs')
+    assert.equal(result.code, 1, result.output)
+    assert.match(result.output, /docs\/refs\.md:7\s+gone\.md/u)
+    assert.doesNotMatch(result.output, /refs\.md:[568]/u)
+    // Consecutive definitions are separate blocks, not a wrapped paragraph.
+    assert.equal(runGate(repo, 'verify-md-wrap.mjs').code, 0)
+  })
+})
+
+test('links inside code spans and indented code are not resolved', () => {
+  withRepo({}, (repo) => {
+    writeFileSync(join(repo, 'docs', 'code.md'),
+      '# Title\n\nWrite `[text](missing.md)` or ``[a](b` c.md)``.\n\n    [indented](missing.md)\n', 'utf8')
+    const result = runGate(repo, 'verify-md-links.mjs')
+    assert.equal(result.code, 0, result.output)
+  })
+})
+
+// CRLF is one line ending, like LF: a record saved on Windows is the same
+// record, and two trailing CRLFs are two trailing line endings.
+
+test('a CRLF record conforms like an LF one', () => {
+  withRepo({ mutate: repo => writeRecord(repo, 'implemented/architecture/2026-01-01-good.md', GOOD_RECORD.replace(/\n/gu, '\r\n')) },
+    (repo) => {
+      const result = runGate(repo, 'verify-agent-note-format.mjs')
+      assert.equal(result.code, 0, result.output)
+    })
+})
+
+test('a CRLF paragraph wrapped across lines is rejected', () => {
+  withRepo({}, (repo) => {
+    writeFileSync(join(repo, 'docs', 'crlf.md'), '# Title\r\n\r\nfirst line\r\nsecond line.\r\n', 'utf8')
+    const result = runGate(repo, 'verify-md-wrap.mjs')
+    assert.equal(result.code, 1)
+    assert.match(result.output, /docs\/crlf\.md:4/u)
+  })
+})
+
+test('more than one trailing line ending is rejected in either style', () => {
+  withRepo({}, (repo) => {
+    writeFileSync(join(repo, 'docs', 'one.md'), '# Title\r\n', 'utf8')
+    assert.equal(runGate(repo, 'verify-final-newline.mjs').code, 0)
+    writeFileSync(join(repo, 'docs', 'crlf.md'), '# Title\r\n\r\n', 'utf8')
+    writeFileSync(join(repo, 'docs', 'mixed.md'), '# Title\n\r\n', 'utf8')
+    const result = runGate(repo, 'verify-final-newline.mjs')
+    assert.equal(result.code, 1)
+    assert.match(result.output, /docs\/crlf\.md\s+more than one trailing newline/u)
+    assert.match(result.output, /docs\/mixed\.md\s+more than one trailing newline/u)
+    assert.doesNotMatch(result.output, /docs\/one\.md/u)
+  })
+})
+
+test('a CRLF marker that names nothing is rejected', () => {
+  withRepo({}, (repo) => {
+    writeFileSync(join(repo, 'tool.mjs'), '// TODO\r\nexport const x = 1\r\n', 'utf8')
+    const result = runGate(repo, 'verify-issue-tags.mjs')
+    assert.equal(result.code, 1)
+    assert.match(result.output, /tool\.mjs:1\s+TODO/u)
+  })
+})
+
+// The commit group judges the index. A violation that is staged and then fixed
+// only in the working copy is still what the commit would record.
+
+test('the commit group judges staged content, not the working copy', () => {
+  withRepo({}, (repo) => {
+    writeFileSync(join(repo, 'docs', 'wrapped.md'), '# Title\n\nfirst line\nsecond line.\n', 'utf8')
+    writeFileSync(join(repo, 'docs', 'bare.md'), '# Title\n\nno newline', 'utf8')
+    writeFileSync(join(repo, 'tool.mjs'), '// TODO\n', 'utf8')
+    stageAll(repo)
+    writeFileSync(join(repo, 'docs', 'wrapped.md'), '# Title\n\nfirst line second line.\n', 'utf8')
+    writeFileSync(join(repo, 'docs', 'bare.md'), '# Title\n\nno newline\n', 'utf8')
+    writeFileSync(join(repo, 'tool.mjs'), '// TODO(release): name the reason\n', 'utf8')
+    assert.equal(runSuite(repo, 'full').code, 0, 'the working copy is clean')
+    const result = runSuite(repo, 'commit')
+    assert.equal(result.code, 1, result.output)
+    assert.match(result.output, /docs\/wrapped\.md:4/u)
+    assert.match(result.output, /docs\/bare\.md\s+no trailing newline/u)
+    assert.match(result.output, /tool\.mjs:1\s+TODO/u)
+  })
+})
+
+test('the commit group passes staged content the working copy has since broken', () => {
+  withRepo({}, (repo) => {
+    writeFileSync(join(repo, 'docs', 'fine.md'), '# Title\n\none line.\n', 'utf8')
+    stageAll(repo)
+    writeFileSync(join(repo, 'docs', 'fine.md'), '# Title\n\nnow\nwrapped', 'utf8')
+    const result = runSuite(repo, 'commit')
+    assert.equal(result.code, 0, result.output)
+  })
+})
+
+test('the pre-commit hook rejects a staged violation fixed only in the working copy', () => {
+  withRepo({}, (repo) => {
+    const env = gitConfigEnv(join(repo, '.git', 'sandbox-gitconfig'), {
+      GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.com',
+      GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.com',
+    })
+    const git = (...args) => spawnSync('git', ['-C', repo, '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8', env })
+    assert.match(git('config', 'core.hooksPath').stdout, /\.githooks/u, 'the scaffold installs the hook')
+    writeFileSync(join(repo, 'docs', 'wrapped.md'), '# Title\n\nfirst line\nsecond line.\n', 'utf8')
+    assert.equal(git('add', '-A').status, 0)
+    writeFileSync(join(repo, 'docs', 'wrapped.md'), '# Title\n\nfirst line second line.\n', 'utf8')
+    const rejected = git('commit', '-q', '-m', 'wrapped')
+    assert.notEqual(rejected.status, 0, rejected.stdout + rejected.stderr)
+    assert.match(rejected.stdout + rejected.stderr, /docs\/wrapped\.md:4/u)
+
+    assert.equal(git('add', '-A').status, 0)
+    const accepted = git('commit', '-q', '-m', 'fixed')
+    assert.equal(accepted.status, 0, accepted.stdout + accepted.stderr)
+  })
+})
+
+// Output size and advisory status: a gate is judged by its exit code, and an
+// advisory gate stays advisory even when it cannot be run to completion.
+
+/**
+ * Replace a scaffolded repository's gate manifest with one test gate.
+ * @param repo - Absolute repository path.
+ * @param source - The gate's source.
+ * @param advisory - Whether the gate is advisory.
+ */
+function installOnlyGate(repo, source, advisory) {
+  writeFileSync(join(repo, 'scripts', 'gates', 'noisy.mjs'), source, 'utf8')
+  writeFileSync(join(repo, 'scripts', 'gates', 'gates.json'),
+    `${JSON.stringify({ 'noisy.mjs': { groups: ['full'], description: 'prints a lot', advisory } }, null, 2)}\n`, 'utf8')
+}
+
+test('a passing gate with more than a megabyte of output passes', () => {
+  withRepo({}, (repo) => {
+    installOnlyGate(repo, "process.stdout.write('x'.repeat(4 * 1024 * 1024) + '\\nnoisy: done\\n')\n", false)
+    const result = runSuite(repo)
+    assert.equal(result.code, 0, result.output.slice(-500))
+    assert.match(result.output, /ok\s+noisy\s+noisy: done/u)
+  })
+})
+
+test('a gate that cannot be run to completion honours advisory', async () => {
+  const repo = scaffold()
+  try {
+    installOnlyGate(repo, "process.stdout.write('x'.repeat(64 * 1024))\n", true)
+    const { runGates } = await import(pathToFileURL(join(repo, 'scripts', 'gates', 'run.mjs')).href)
+    assert.deepEqual(runGates(repo, 'full', { maxBuffer: 1024 }), { failures: 0, advisories: 1, total: 1 })
+    installOnlyGate(repo, "process.stdout.write('x'.repeat(64 * 1024))\n", false)
+    assert.deepEqual(runGates(repo, 'full', { maxBuffer: 1024 }), { failures: 1, advisories: 0, total: 1 })
   } finally {
     removeSandbox(repo)
   }

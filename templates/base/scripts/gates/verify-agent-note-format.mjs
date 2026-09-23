@@ -7,6 +7,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { notesRoot, walkAgentNoteTree } from './agent-note-tree.mjs'
+import { classifyLines, isCode, splitLines } from './lib/markdown.mjs'
 import { isMain } from './lib/repo-files.mjs'
 
 const ROOT = resolve(import.meta.dirname, '..', '..')
@@ -29,32 +30,6 @@ const REQUIRED = {
 const BANNED_IN_IMPLEMENTED = /^## (?:Proposal|Plan|Migration plan|Acceptance criteria)\b/iu
 
 /**
- * Drop fenced code blocks so format tokens shown as examples are not read as structure.
- * @param lines - Document lines.
- * @returns The lines outside fences.
- */
-function proseLines(lines) {
-  const out = []
-  let inFence = false
-  let marker = ''
-  for (const line of lines) {
-    const fence = /^\s*(`{3,}|~{3,})/u.exec(line)
-    if (fence !== null) {
-      if (!inFence) {
-        inFence = true
-        marker = fence[1]
-      } else if (fence[1].startsWith(marker[0])) {
-        inFence = false
-        marker = ''
-      }
-      continue
-    }
-    if (!inFence) out.push(line)
-  }
-  return out
-}
-
-/**
  * Check every record against the format rules.
  * @param root - Absolute repository root.
  * @returns One message per violation.
@@ -65,8 +40,10 @@ export function checkAgentNoteFormat(root) {
 
   for (const note of notes) {
     const fail = message => errors.push(`format: ${note.rel} — ${message}`)
-    const lines = readFileSync(resolve(base, note.rel), 'utf8').split('\n')
-    const prose = proseLines(lines)
+    // Code is dropped so format tokens shown as examples are not read as structure.
+    const lines = splitLines(readFileSync(resolve(base, note.rel), 'utf8'))
+    const blocks = classifyLines(lines)
+    const prose = lines.filter((_, index) => !isCode(blocks[index]))
 
     if (!/^# Decision Record: \S/u.test(lines[0] ?? '')) fail('line 1 must be `# Decision Record: <title>`')
     if (lines[1] !== '') fail('line 2 must be blank')

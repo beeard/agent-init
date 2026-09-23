@@ -129,6 +129,25 @@ test('--link installs a symlink for a package that will not move', () => {
   }
 })
 
+test('a copy install replaces an earlier --link install with a copy', () => {
+  const { home, result } = install(['--link'])
+  try {
+    assert.equal(result.code, 0, result.output)
+    const target = join(home, '.claude', 'skills', 'agent-init-setup')
+    assert.ok(lstatSync(target).isSymbolicLink())
+    // The link leads to a current SKILL.md, but a link is not the copy that
+    // survives npm pruning the package, so it is not `ok`.
+    const copied = runCli(['--install-skill'], PACKAGE_ROOT, { HOME: home })
+    assert.equal(copied.code, 0, copied.output)
+    assert.match(copied.output, /replaced\s+/u)
+    assert.ok(!lstatSync(target).isSymbolicLink(), 'the link must become a copy')
+    assert.equal(readFileSync(join(target, 'SKILL.md'), 'utf8'), SKILL_MARKDOWN)
+    assert.ok(existsSync(join(SKILL_SOURCE, 'SKILL.md')), 'the linked source is untouched')
+  } finally {
+    removeSandbox(home)
+  }
+})
+
 test('--skill-dir installs where it is told', () => {
   const home = makeSandbox()
   try {
