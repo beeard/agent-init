@@ -1,6 +1,6 @@
 ---
 name: {{SLUG}}-prose-standard
-description: Use when writing, reviewing, or trimming prose in {{PROJECT}} — documentation, comments, docstrings, commit messages, prompts, diagnostics, error text, or user-facing strings. Decides what must be said and what must be deleted.
+description: Use when prose is the substance of the work in {{PROJECT}} — writing, reviewing, or trimming documentation, docstrings, agent prompts or skills, diagnostics, error text, or user-facing strings. Decides what must be said and what must be deleted. Not needed for a code change whose only prose is a routine commit message or a short comment; the comment rule in AGENTS.md covers those.
 ---
 
 # Prose standard
@@ -76,10 +76,6 @@ Keep a term when it names the exact technical subject — a process boundary is 
 
 ## Rewriting an existing passage
 
-1. Read the whole passage before changing any of it.
-2. List every proposition it carries.
-3. For each: is it a contract fact (keep), a duplicate (link to its home), or reasoning (delete)?
-4. Rewrite, preserving every fact you decided to keep.
-5. Re-read against the original. If a caller could now do something wrong that the original warned them about, you cut too far.
+Classify every proposition in the whole passage before changing any of it: a contract fact is kept, a duplicate becomes a link to its home, and reasoning is deleted. Then compare the rewrite against the original — if a caller could now do something wrong that the original warned them about, you cut too far.
 
 Cutting is not the goal. A passage that is short and incomplete is worse than one that is long and correct — the failure this standard exists to prevent is a reader who cannot tell what the code promises.

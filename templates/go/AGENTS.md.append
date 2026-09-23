@@ -5,7 +5,7 @@ These orders apply in addition to the general ones above.
 
 - **An exported identifier is public API and carries a doc comment.** Go's rule is the leading capital letter, and the toolchain reads the comment as documentation: it must start with the identifier's own name (`// Store persists items.`, not `// This stores items.`). The gate enforces the same boundary.
 - **Wrap errors with `%w`, and add context at each layer.** `fmt.Errorf("loading %s: %w", path, err)` keeps `errors.Is` and `errors.As` working for the caller. `%v` on an error discards the chain, and the caller can no longer tell a missing file from a permission problem.
-- **`gofmt` is not optional.** Formatting is not a review topic; run it and let it rewrite.
+- **Run `gofmt` and let it rewrite.** Formatting is not a review topic.
 - **`go vet` before push**, and treat its findings as errors. It catches real defects — a lost `cancel`, a misused lock copy, a bad `Printf` verb — that compile cleanly.
 - **Dependencies live in `go.mod`.** Vendor only what must be vendored, and never edit a vendored file by hand: change the upstream, or fork it deliberately.
 - **Do not ignore a returned error with `_` unless the discard is deliberate**, and say why in a comment when it is. A silently dropped error is the defect a reviewer cannot see.

@@ -5,10 +5,9 @@ These orders apply in addition to the general ones above.
 
 - **Public means no leading underscore.** It is the convention Python uses, and the docstring gate reads it the same way: a module, class, function, or method whose name starts with `_` is private and undocumented by contract, not by omission.
 - **Everything public carries a docstring.** State the contract — parameters, return value, raised exceptions, side effects — not a restatement of the signature.
-- **Annotate public signatures.** Parameters and return types are part of the interface. `Any` needs a reason in a comment; a bare `# type: ignore` does not.
+- **Annotate public signatures.** Parameters and return types are part of the interface. `Any` needs a reason in a comment.
 - **Tests live in `tests/`, named `test_<module>.py`**, mirroring the package. Never inside the installed package. See [docs/testing-python.md](docs/testing-python.md).
 - **Never call `datetime.now()`, `random`, or the working directory in code a test exercises directly.** Inject the clock, the generator, and the path.
 - **Use `pytest.raises(..., match=...)`.** An assertion on the exception type alone passes when the code raises the right type for the wrong reason.
-- **Manage dependencies in `pyproject.toml`**, not in a `requirements.txt` beside it. Two dependency lists drift.
-- **Prefer a maintained library over hand-rolled code** when it genuinely deletes code you would otherwise own and test, and add it to `pyproject.toml` with a lower bound.
-- **Do not silence a linter or type checker to make a change pass.** A red check is a fact about the change; fix it or explain why the tool is wrong.
+- **Manage dependencies in `pyproject.toml`, each with a lower bound**, not in a `requirements.txt` beside it. Two dependency lists drift.
+- **Do not silence a linter or type checker to make a change pass.** Fix the finding, or say in a comment beside the `# type: ignore` or `# noqa` why the tool is wrong.

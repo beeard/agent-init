@@ -46,7 +46,7 @@ An agent with no relationship to this repository can set one up correctly, and t
 
 The cost is the third copy. The skill and the README already had to stay in step with the CLI, nothing checks that, and this adds a fourth surface for the same facts. The prompt is written to be short for that reason: it names the flags a run needs rather than restating the reference.
 
-A second cost is the pinned filename. `agent-init-0.1.0.tgz` is what the prompt tells the agent to look for, so a version bump invalidates the prompt unless the filename moves with it. That was chosen over a glob on purpose — an agent that cannot find the exact name it was told to look for stops and asks, which is easier to diagnose than a silent fallback to a stale archive.
+A second cost is the pinned filename. `agent-init-0.1.2.tgz` is what the prompt tells the agent to look for, so a version bump invalidates the prompt unless the filename moves with it. That was chosen over a glob on purpose — an agent that cannot find the exact name it was told to look for stops and asks, which is easier to diagnose than a silent fallback to a stale archive.
 
 ## Related
 
