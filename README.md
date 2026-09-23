@@ -60,12 +60,12 @@ The hook does not displace anything: an existing `.githooks/pre-commit` is kept 
 | `--with-architecture` | Add the composition discipline (below). |
 | `--lenient` | Mark every gate advisory, for adopting an existing repository. |
 | `--no-hooks` | Do not install the pre-commit hook |
-| `--force` | Overwrite files that already exist. |
+| `--force` | Overwrite existing files. |
 | `--dry-run` | Print the plan, write nothing. |
 | `--allow-non-git` | Scaffold outside a Git worktree. |
 | `--install-skill` | Install the setup skill instead of scaffolding; `--link`, `--skill-dir`. |
 
-Re-running keeps existing files unless `--force`.
+Re-running keeps files and edited JSON values unless `--force`.
 
 ## The layers
 
