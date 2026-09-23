@@ -995,9 +995,97 @@ test('a gate that cannot be run to completion honours advisory', async () => {
   try {
     installOnlyGate(repo, "process.stdout.write('x'.repeat(64 * 1024))\n", true)
     const { runGates } = await import(pathToFileURL(join(repo, 'scripts', 'gates', 'run.mjs')).href)
-    assert.deepEqual(runGates(repo, 'full', { maxBuffer: 1024 }), { failures: 0, advisories: 1, total: 1 })
+    assert.deepEqual(await runGates(repo, 'full', { maxBuffer: 1024 }), { failures: 0, advisories: 1, total: 1 })
     installOnlyGate(repo, "process.stdout.write('x'.repeat(64 * 1024))\n", false)
-    assert.deepEqual(runGates(repo, 'full', { maxBuffer: 1024 }), { failures: 1, advisories: 0, total: 1 })
+    assert.deepEqual(await runGates(repo, 'full', { maxBuffer: 1024 }), { failures: 1, advisories: 0, total: 1 })
+  } finally {
+    removeSandbox(repo)
+  }
+})
+
+// Scheduling: gates run concurrently, and the report reads in manifest order
+// whatever order they finish in.
+
+/**
+ * Replace a scaffolded repository's gate manifest with a waiting gate listed
+ * before the gate it waits for, so it can only pass when both run at once.
+ * @param repo - Absolute repository path.
+ */
+function installRendezvousGates(repo) {
+  const gates = join(repo, 'scripts', 'gates')
+  writeFileSync(join(gates, 'waits.mjs'), [
+    "import { existsSync } from 'node:fs'",
+    'const until = Date.now() + 3000',
+    "while (!existsSync('rendezvous') && Date.now() < until) await new Promise(settle => setTimeout(settle, 20))",
+    "if (existsSync('rendezvous')) console.log('waits: met')",
+    "else { console.error('waits: alone'); process.exitCode = 1 }",
+    '',
+  ].join('\n'), 'utf8')
+  writeFileSync(join(gates, 'arrives.mjs'), "import { writeFileSync } from 'node:fs'\nwriteFileSync('rendezvous', '')\nconsole.log('arrives: here')\n", 'utf8')
+  writeFileSync(join(gates, 'gates.json'), `${JSON.stringify({
+    'waits.mjs': { groups: ['full'], description: 'waits for the other gate' },
+    'arrives.mjs': { groups: ['full'], description: 'arrives' },
+  }, null, 2)}\n`, 'utf8')
+}
+
+/**
+ * Run the suite with extra runner arguments.
+ * @param repo - Absolute repository path.
+ * @param args - Runner arguments.
+ * @returns Exit code and combined output.
+ */
+function runSuiteWith(repo, args) {
+  const result = spawnSync(process.execPath, [join(repo, 'scripts', 'gates', 'run.mjs'), ...args], { cwd: repo, encoding: 'utf8' })
+  return { code: result.status ?? 1, output: `${result.stdout}${result.stderr}` }
+}
+
+test('gates run concurrently and are reported in manifest order', () => {
+  withRepo({}, (repo) => {
+    installRendezvousGates(repo)
+    const result = runSuiteWith(repo, ['--jobs', '2'])
+    assert.equal(result.code, 0, result.output)
+    assert.match(result.output, /ok\s+waits\s+waits: met\nok\s+arrives\s+arrives: here/u)
+  })
+})
+
+test('--jobs 1 runs one gate at a time', () => {
+  withRepo({}, (repo) => {
+    installRendezvousGates(repo)
+    const result = runSuiteWith(repo, ['--jobs', '1'])
+    assert.equal(result.code, 1, result.output)
+    assert.match(result.output, /FAIL\s+waits[\s\S]*waits: alone/u)
+  })
+})
+
+test('--jobs rejects a count that is not a positive whole number', () => {
+  withRepo({}, (repo) => {
+    for (const jobs of ['0', '-1', '1.5', 'many']) {
+      const result = runSuiteWith(repo, [`--jobs=${jobs}`])
+      assert.equal(result.code, 2, `${jobs}: ${result.output}`)
+      assert.match(result.output, /--jobs expects a positive whole number/u)
+    }
+  })
+})
+
+test('a skipped directory is pruned from the walk, not filtered after it', async () => {
+  const repo = scaffold()
+  try {
+    const lib = await import(pathToFileURL(join(repo, 'scripts', 'gates', 'lib', 'repo-files.mjs')).href)
+    mkdirSync(join(repo, 'node_modules', 'pkg'), { recursive: true })
+    writeFileSync(join(repo, 'node_modules', 'pkg', 'index.js'), 'x\n', 'utf8')
+    mkdirSync(join(repo, 'src', 'node_modules'), { recursive: true })
+    writeFileSync(join(repo, 'src', 'node_modules', 'nested.js'), 'x\n', 'utf8')
+    writeFileSync(join(repo, 'src', 'kept.js'), 'x\n', 'utf8')
+
+    const cache = new Map()
+    const pruned = lib.expandGlob(repo, '**/*.js', { prune: new Set(['node_modules']), cache })
+    assert.deepEqual(pruned, ['src/kept.js'])
+    assert.ok([...cache.keys()].every(dir => !dir.split(/[\\/]/u).includes('node_modules')), [...cache.keys()].join('\n'))
+
+    // Pruning must not change the answer the predicate alone would give.
+    const isSkipped = lib.corpusSkipPredicate(repo, {}, lib.REPOSITORY_SKIP_DIRECTORIES)
+    const filtered = lib.expandGlob(repo, '**/*.js').filter(relPath => !isSkipped(relPath))
+    assert.deepEqual(lib.collectFiles(repo, ['**/*.js'], isSkipped).map(file => file.relPath), filtered)
   } finally {
     removeSandbox(repo)
   }

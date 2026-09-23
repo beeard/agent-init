@@ -5,11 +5,16 @@
  * of the others. A gate marked `advisory` reports its findings without failing
  * the run, whether it exits non-zero or cannot be run at all.
  *
+ * Gates run concurrently, one per available CPU unless `--jobs` says otherwise,
+ * and are reported in manifest order whatever order they finish in. A gate must
+ * therefore not write where another gate reads.
+ *
  * Usage:
  *   node scripts/gates/run.mjs                 # the whole-repository suite
  *   node scripts/gates/run.mjs --group commit  # what the pre-commit hook runs
  *   node scripts/gates/run.mjs --group full    # the same as the default
  *   node scripts/gates/run.mjs --list          # what would run, and when
+ *   node scripts/gates/run.mjs --jobs 1        # one gate at a time
  *
  * The `commit` group judges what the commit will contain, not the working tree.
  * The index is materialised into a temporary tree, every gate runs from that
@@ -23,8 +28,8 @@
  */
 
 import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
-import { spawnSync } from 'node:child_process'
-import { tmpdir } from 'node:os'
+import { spawn, spawnSync } from 'node:child_process'
+import { availableParallelism, tmpdir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { REPOSITORY_SKIP_DIRECTORIES, declaredSkipDirectories, isMain, readConfig } from './lib/repo-files.mjs'
@@ -59,6 +64,10 @@ export function selectGates(gates, group) {
 
 /**
  * Run one gate as a child process.
+ *
+ * A gate whose combined output passes `maxBuffer` is killed and reported with
+ * an error, as a gate that could not be run to completion.
+ *
  * @param root - Absolute root the gate runs against.
  * @param script - Gate filename.
  * @param args - Extra arguments, such as `--staged`.
@@ -66,17 +75,57 @@ export function selectGates(gates, group) {
  * @returns Exit code, combined output, and any spawn error.
  */
 function runGate(root, script, args, { env = process.env, maxBuffer = MAX_GATE_OUTPUT } = {}) {
-  const result = spawnSync(process.execPath, [resolve(root, 'scripts', 'gates', script), ...args], {
-    cwd: root,
-    encoding: 'utf8',
-    env,
-    maxBuffer,
+  return new Promise((settle) => {
+    const child = spawn(process.execPath, [resolve(root, 'scripts', 'gates', script), ...args], {
+      cwd: root,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    const stdout = []
+    const stderr = []
+    let size = 0
+    let error
+    const collect = sink => (chunk) => {
+      if (error !== undefined) return
+      size += chunk.length
+      if (size > maxBuffer) {
+        error = new Error(`${script} wrote more than ${maxBuffer} bytes of output`)
+        child.kill()
+        return
+      }
+      sink.push(chunk)
+    }
+    child.stdout.on('data', collect(stdout))
+    child.stderr.on('data', collect(stderr))
+    const finish = code => settle({
+      code: code ?? 1,
+      output: `${Buffer.concat(stdout).toString('utf8')}${Buffer.concat(stderr).toString('utf8')}`.trimEnd(),
+      error,
+    })
+    // A child that never started emits no `close` to wait for.
+    child.on('error', (spawnError) => {
+      error ??= spawnError
+      if (child.pid === undefined) finish(null)
+    })
+    child.on('close', finish)
   })
-  return {
-    code: result.status ?? 1,
-    output: `${result.stdout ?? ''}${result.stderr ?? ''}`.trimEnd(),
-    error: result.error,
+}
+
+/**
+ * Print one gate's result.
+ * @param script - Gate filename.
+ * @param entry - The gate's manifest entry.
+ * @param result - What `runGate` returned.
+ */
+function report(script, entry, result) {
+  const label = script.replace(/\.mjs$/u, '')
+  if (result.code === 0 && result.error === undefined) {
+    console.log(`ok    ${label.padEnd(28)} ${result.output.split('\n').at(-1) ?? ''}`)
+    return
   }
+  const mark = entry.advisory === true ? 'WARN' : 'FAIL'
+  console.error(`${mark}  ${label.padEnd(28)} ${result.error?.message ?? entry.description}`)
+  for (const line of result.output.split('\n')) console.error(line === '' ? '' : `      ${line}`)
 }
 
 /**
@@ -142,35 +191,49 @@ export function materialiseIndex(root) {
  * The `commit` group runs against the materialised index; every other group
  * runs against the repository as it is.
  *
+ * Up to `jobs` gates run at once. Each result is printed as soon as every gate
+ * before it in the manifest has been printed, so the report reads the same
+ * however the gates are scheduled.
+ *
  * @param root - Absolute repository root.
  * @param group - `commit` or `full`.
- * @param options - `maxBuffer` bounds each gate's output.
+ * @param options - `maxBuffer` bounds each gate's output; `jobs` bounds how
+ *   many gates run at once.
  * @returns The number of enforcing failures and the number of advisories.
  */
-export function runGates(root, group, { maxBuffer = MAX_GATE_OUTPUT } = {}) {
+export async function runGates(root, group, { maxBuffer = MAX_GATE_OUTPUT, jobs = availableParallelism() } = {}) {
   const gates = readGates(root)
   const selected = selectGates(gates, group)
   const staged = group === 'commit' ? materialiseIndex(root) : null
   const target = staged?.tree ?? root
   const env = staged?.env ?? process.env
   const args = staged === null ? [] : ['--staged']
+  const results = new Array(selected.length)
+  let started = 0
+  let printed = 0
   let failures = 0
   let advisories = 0
 
-  try {
-    for (const [script, entry] of selected) {
-      const label = script.replace(/\.mjs$/u, '')
-      const result = runGate(target, script, args, { env, maxBuffer })
-      if (result.code === 0 && result.error === undefined) {
-        console.log(`ok    ${label.padEnd(28)} ${result.output.split('\n').at(-1) ?? ''}`)
-        continue
-      }
-      const mark = entry.advisory === true ? 'WARN' : 'FAIL'
+  const flush = () => {
+    while (printed < selected.length && results[printed] !== undefined) {
+      const [script, entry] = selected[printed]
+      const result = results[printed++]
+      report(script, entry, result)
+      if (result.code === 0 && result.error === undefined) continue
       if (entry.advisory === true) advisories++
       else failures++
-      console.error(`${mark}  ${label.padEnd(28)} ${result.error?.message ?? entry.description}`)
-      for (const line of result.output.split('\n')) console.error(line === '' ? '' : `      ${line}`)
     }
+  }
+  const worker = async () => {
+    while (started < selected.length) {
+      const index = started++
+      results[index] = await runGate(target, selected[index][0], args, { env, maxBuffer })
+      flush()
+    }
+  }
+
+  try {
+    await Promise.all(Array.from({ length: Math.max(1, Math.min(jobs, selected.length)) }, worker))
   } finally {
     if (staged !== null) rmSync(staged.tree, { recursive: true, force: true })
   }
@@ -182,7 +245,7 @@ export function runGates(root, group, { maxBuffer = MAX_GATE_OUTPUT } = {}) {
  * Run the runner as a command.
  * @returns Process exit code.
  */
-function main() {
+async function main() {
   let values
   try {
     ({ values } = parseArgs({
@@ -190,12 +253,19 @@ function main() {
       allowPositionals: false,
       options: {
         group: { type: 'string' },
+        jobs: { type: 'string' },
         list: { type: 'boolean', default: false },
       },
       strict: true,
     }))
   } catch (error) {
     console.error(`run: ${error instanceof Error ? error.message : String(error)}`)
+    return 2
+  }
+
+  const jobs = values.jobs === undefined ? availableParallelism() : Number(values.jobs)
+  if (!Number.isInteger(jobs) || jobs < 1) {
+    console.error(`run: --jobs expects a positive whole number, got ${JSON.stringify(values.jobs)}`)
     return 2
   }
 
@@ -227,7 +297,7 @@ function main() {
 
   let outcome
   try {
-    outcome = runGates(ROOT, group)
+    outcome = await runGates(ROOT, group, { jobs })
   } catch (error) {
     console.error(`run: cannot materialise the index for the ${group} group — ${error instanceof Error ? error.message : String(error)}`)
     return 2
@@ -246,7 +316,7 @@ function main() {
 }
 
 if (isMain(import.meta.url)) {
-  process.exitCode = main()
+  process.exitCode = await main()
 }
 
 /** Exported for tests. */

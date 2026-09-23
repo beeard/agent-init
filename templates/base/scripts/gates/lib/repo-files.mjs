@@ -67,17 +67,40 @@ function splitPattern(pattern) {
 }
 
 /**
+ * Build the directory reader one walk uses.
+ *
+ * Each directory is listed once however many patterns visit it, and a
+ * directory named in `prune` is never entered.
+ *
+ * @param options - `prune` names directories whose contents are never wanted;
+ *   `cache` shares listings across several expansions of the same tree.
+ * @returns A function listing a directory's entries, minus the pruned ones.
+ */
+function directoryReader({ prune = new Set(), cache = new Map() } = {}) {
+  return (dirAbs) => {
+    let entries = cache.get(dirAbs)
+    if (entries === undefined) {
+      entries = readdirSync(dirAbs, { withFileTypes: true })
+        .filter(entry => !(entry.isDirectory() && prune.has(entry.name)))
+      cache.set(dirAbs, entries)
+    }
+    return entries
+  }
+}
+
+/**
  * Collect every file below a directory, skipping dot entries.
+ * @param list - The walk's directory reader.
  * @param dirAbs - Absolute directory path.
  * @param dirRel - Repository-relative form of `dirAbs`, prefixed with `./`.
  * @param out - Sink for repository-relative slash paths.
  */
-function collectAll(dirAbs, dirRel, out) {
-  for (const entry of readdirSync(dirAbs, { withFileTypes: true })) {
+function collectAll(list, dirAbs, dirRel, out) {
+  for (const entry of list(dirAbs)) {
     if (entry.name.startsWith('.')) continue
     const childAbs = join(dirAbs, entry.name)
     const childRel = `${dirRel}/${entry.name}`
-    if (entry.isDirectory()) collectAll(childAbs, childRel, out)
+    if (entry.isDirectory()) collectAll(list, childAbs, childRel, out)
     else if (entry.isFile() || entry.isSymbolicLink()) out.push(childRel.slice(2))
   }
 }
@@ -86,10 +109,13 @@ function collectAll(dirAbs, dirRel, out) {
  * Expand one repository-relative glob to repository-relative slash paths.
  * @param root - Absolute repository root.
  * @param pattern - A repository-relative glob.
+ * @param options - `prune` names directories never entered, at any depth;
+ *   `cache` shares directory listings between expansions.
  * @returns Matching paths, sorted.
  */
-export function expandGlob(root, pattern) {
+export function expandGlob(root, pattern, options = {}) {
   const segments = splitPattern(pattern)
+  const list = directoryReader(options)
   const out = []
 
   const visit = (dirAbs, dirRel, index) => {
@@ -99,19 +125,19 @@ export function expandGlob(root, pattern) {
     if (segment === '**') {
       // A trailing `**` selects every file below, at any depth.
       if (last) {
-        collectAll(dirAbs, dirRel, out)
+        collectAll(list, dirAbs, dirRel, out)
         return
       }
       // Otherwise it consumes zero directories, then one per recursion.
       // Symlinked directories are never entered, so the traversal terminates.
       visit(dirAbs, dirRel, index + 1)
-      for (const entry of readdirSync(dirAbs, { withFileTypes: true })) {
+      for (const entry of list(dirAbs)) {
         if (entry.name.startsWith('.') || !entry.isDirectory()) continue
         visit(join(dirAbs, entry.name), `${dirRel}/${entry.name}`, index)
       }
       return
     }
-    for (const entry of readdirSync(dirAbs, { withFileTypes: true })) {
+    for (const entry of list(dirAbs)) {
       if (!segmentMatches(segment, entry.name)) continue
       const childAbs = join(dirAbs, entry.name)
       const childRel = `${dirRel}/${entry.name}`
@@ -136,16 +162,22 @@ export function expandGlob(root, pattern) {
  * repository sees; `realPath` is where the content lives, and is the correct
  * base for resolving that document's own relative links.
  *
+ * The tree is listed once for all patterns. A predicate that carries a
+ * `directories` set, as `corpusSkipPredicate` returns, has those directories
+ * pruned from the walk instead of filtered afterwards: the predicate rejects
+ * every file below them, so the result is the same without reading them.
+ *
  * @param root - Absolute repository root.
  * @param patterns - Repository-relative globs, processed in order.
  * @param isSkipped - Optional predicate over each matched repository-relative path.
  * @returns Matched files with both their matched and canonical relative paths.
  */
 export function collectFiles(root, patterns, isSkipped = () => false) {
+  const walk = { prune: isSkipped.directories ?? new Set(), cache: new Map() }
   const seen = new Set()
   const files = []
   for (const pattern of patterns) {
-    for (const relPath of expandGlob(root, pattern)) {
+    for (const relPath of expandGlob(root, pattern, walk)) {
       if (isSkipped(relPath)) continue
       const abs = resolve(root, relPath)
       const real = realpathSync(abs)
@@ -185,9 +217,10 @@ export function readConfig(path) {
  * @returns A predicate over repository-relative paths.
  */
 export function skipPredicate(root, skipGlobs) {
+  const walk = { cache: new Map() }
   const skipped = new Set()
   for (const pattern of skipGlobs) {
-    for (const relPath of expandGlob(root, pattern)) skipped.add(relPath)
+    for (const relPath of expandGlob(root, pattern, walk)) skipped.add(relPath)
   }
   return relPath => skipped.has(relPath)
 }
@@ -239,13 +272,16 @@ export function declaredSkipDirectories(config) {
  * @param root - Absolute repository root.
  * @param config - The parsed gate configuration.
  * @param defaultDirectories - Directory names skipped even when nothing names them.
- * @returns A predicate over repository-relative paths.
+ * @returns A predicate over repository-relative paths, carrying the excluded
+ *   directory names as `directories` so a walk can prune them.
  */
 export function corpusSkipPredicate(root, config, defaultDirectories = []) {
   const excluded = new Set([...defaultDirectories, ...declaredSkipDirectories(config)])
   const inSharedSkip = skipPredicate(root, config.skipGlobs ?? [])
-  return relPath =>
+  const predicate = relPath =>
     inSharedSkip(relPath) || relPath.split('/').slice(0, -1).some(segment => excluded.has(segment))
+  predicate.directories = excluded
+  return predicate
 }
 
 /**
