@@ -19,7 +19,7 @@
 
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { extname, isAbsolute, relative, resolve } from 'node:path'
+import { extname, isAbsolute, relative, resolve, sep } from 'node:path'
 
 const PACKAGE_ROOT = resolve(import.meta.dirname, '..', '..')
 
@@ -37,7 +37,8 @@ function postEdit(payload, projectDir) {
   if (typeof named !== 'string' || named === '') return { code: 0, message: '' }
   const file = resolve(projectDir, named)
   const rel = relative(projectDir, file)
-  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return { code: 0, message: '' }
+  // `..` is outside only as a whole segment: `..foo/` is a directory inside the project.
+  if (rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return { code: 0, message: '' }
   const ext = extname(file).toLowerCase()
 
   if (ext === '.json') {
@@ -65,8 +66,9 @@ function postEdit(payload, projectDir) {
   if (formatted.error !== undefined) return { code: 1, message: `post-edit: cannot run npx — ${formatted.error.message}` }
   if (formatted.status !== 0) {
     const output = `${formatted.stderr}${formatted.stdout}`.trim()
-    // A file Prettier cannot parse is the agent's to fix; anything else is the tooling's.
-    return { code: /SyntaxError/u.test(output) ? 2 : 1, message: `${rel}: Prettier failed\n${output}` }
+    // Prettier exits 2 on a file it cannot parse, which is the agent's to fix; npx
+    // failing to fetch or start Prettier exits 1, which is the tooling's.
+    return { code: formatted.status === 2 ? 2 : 1, message: `${rel}: Prettier failed\n${output}` }
   }
   return { code: 0, message: '' }
 }
