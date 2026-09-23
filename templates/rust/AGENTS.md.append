@@ -3,7 +3,7 @@
 
 These orders apply in addition to the general ones above.
 
-- **A public item carries a `///` doc comment, and `#![warn(missing_docs)]` in the crate root makes the compiler enforce it.** Documentation is not a convention here; the lint is the check. State the contract, and use `# Errors` and `# Panics` sections when the item can do either.
+- **A public item carries a `///` doc comment, and the compiler's `missing_docs` lint enforces it on every workspace member.** The gate passes the lint itself; `#![warn(missing_docs)]` in the crate root adds the same warning to your own `cargo check`. State the contract, and use `# Errors` and `# Panics` sections when the item can do either.
 - **`unwrap`, `expect`, and panicking indexing are not acceptable in library code.** They turn a recoverable condition into a process abort, and the caller has no way to handle it. Return a `Result`, or use `?`. In a test they are fine — a failed test should be loud.
 - **Panic only for a programming error, never for expected input.** A malformed file, a missing key, and a closed connection are all things a caller can act on.
 - **`cargo clippy` and `cargo fmt` before push.** Fix what Clippy reports or explain in a comment why the lint is wrong here; a blanket `#[allow]` at the crate root hides the next real finding too.
