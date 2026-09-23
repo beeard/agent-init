@@ -52,6 +52,6 @@ The layer order is fixed as base, then stacks in the order given, then architect
 
 The cost is that three template forms now exist and the suffix carries the whole contract: a file renamed without its suffix changes how it is applied, and nothing checks that. A `.merge` template whose content is not a JSON object throws during application rather than being ignored, which catches the common case, but a `.merge` file that should have been `.append` fails only by producing wrong output.
 
-A second cost is that `--staged` requires Git and falls back to the whole repository with a printed notice when Git cannot answer, so the constant-time property holds only inside a worktree.
+A second cost is that `--staged` requires Git and falls back to the whole repository with a printed notice when Git cannot answer, so the constant-time property holds only inside a worktree. The commit group now also checks out the whole index before the gates run, which [the commit group judges the index](../bug-fix/2026-09-23-the-commit-group-judges-the-index.md) records; the gates' analysis stays proportional to the change, the checkout does not.
 
 The dogfood check now runs four scaffolds instead of one, which is the bulk of `npm run check`'s runtime. That is accepted: the alternative is a layer that passes in isolation and fails on delivery, which is the failure the check exists to catch.

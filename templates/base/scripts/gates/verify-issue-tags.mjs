@@ -106,7 +106,7 @@ export function checkIssueTags(root, { stagedOnly = false } = {}) {
       // An unreadable file is not this gate's subject; another gate reports it.
       continue
     }
-    for (const [index, line] of text.split('\n').entries()) {
+    for (const [index, line] of text.split(/\r?\n/u).entries()) {
       const found = MARKER.exec(line)
       if (found === null) continue
       const [, tag, owner, rest] = found
