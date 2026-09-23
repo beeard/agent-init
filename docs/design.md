@@ -22,7 +22,7 @@ The result is a small set of gates that are cheap to run, which matters more tha
 
 The tool writes files and runs checks, and the Node standard library does both. A dependency would have to be installed before the tool that scaffolds a repository could run, which inverts the bootstrap: the first thing you do to a fresh checkout would be to install something.
 
-Concretely this ruled out a real Markdown parser. `verify-md-wrap` therefore uses a line-oriented block scanner rather than an abstract syntax tree, and the scanner documents what it does not model. That is a genuine loss of precision — a document using link reference definitions or deeply indented nested lists may be misread — accepted in exchange for a tool that runs anywhere Node does.
+Concretely this ruled out a real Markdown parser. `verify-md-wrap` therefore uses a line-oriented block scanner rather than an abstract syntax tree, and the scanner documents what it does not model. That is a genuine loss of precision — a document using deeply indented nested lists may be misread — accepted in exchange for a tool that runs anywhere Node does.
 
 The lesson applied throughout: when precision and reachable-with-nothing conflict, take the check that actually runs.
 

@@ -124,7 +124,7 @@ node scripts/gates/run.mjs --list          # what would run, and when
 node scripts/gates/change-scope.mjs --base origin/main
 ```
 
-Gates in the `commit` group receive `--staged`, which restricts them to the files staged for commit. That is how the hook catches a wrapped paragraph or an undocumented function when it is introduced, without scanning the repository on every commit.
+Gates in the `commit` group run against a checkout of the index and receive `--staged`, so they judge exactly the staged content of the staged files. That is how the hook catches a wrapped paragraph or an undocumented function when it is introduced, without scanning the repository on every commit.
 
 `change-scope` reports what a change actually touches — committed paths against a merge base, plus staged, unstaged, and untracked ones — so an agent can pick the evidence the change needs instead of running everything. It never guesses or fetches a base.
 
