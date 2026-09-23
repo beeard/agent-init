@@ -1,0 +1,19 @@
+{
+  "checks": {
+    "python-syntax": {
+      "extensions": [
+        ".py",
+        ".pyi"
+      ],
+      "run": [
+        [
+          "python3",
+          "python"
+        ],
+        "-c",
+        "import ast, sys\ntry:\n    ast.parse(open(sys.argv[1], 'rb').read(), sys.argv[1])\nexcept SyntaxError as error:\n    sys.exit(f'{error.lineno}:{error.offset}: {error.msg}')",
+        "{file}"
+      ]
+    }
+  }
+}

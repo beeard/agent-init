@@ -54,6 +54,27 @@ const TYPESCRIPT_REQUIRED = ['strict', 'module', 'moduleResolution', 'target']
  */
 const TYPESCRIPT_MODULE_OPTIONS = ['module', 'moduleResolution', 'target', 'lib']
 
+/**
+ * The Claude Code hook entry that runs the shipped edit checks.
+ *
+ * It is registered by appending to the `PostToolUse` list in
+ * `.claude/settings.json` rather than through a `.merge` template, because a
+ * merge replaces a list both sides hold: the repository would lose its own
+ * hooks, or never gain this one. The command is what identifies the entry, so
+ * a re-run finds it and adds nothing.
+ */
+export const EDIT_HOOK = {
+  matcher: 'Write|Edit|MultiEdit',
+  hooks: [
+    {
+      type: 'command',
+      command: 'node "$CLAUDE_PROJECT_DIR/.claude/hooks/post-edit.mjs"',
+      timeout: 120,
+      statusMessage: 'Checking the edited file',
+    },
+  ],
+}
+
 /** The marker that records which version of the structure a repository adopted. */
 export const MANIFEST_PATH = '.agents/manifest.json'
 
@@ -227,6 +248,7 @@ export function buildPlan({ targetDir, templatesRoot, projectName, skills, stack
     variables,
     files: lenient ? markAdvisory(dedupe(files)) : dedupe(files),
     symlinks,
+    editHook: { path: resolve(targetDir, '.claude', 'settings.json'), relPath: '.claude/settings.json', entry: EDIT_HOOK },
     package: packageContribution(targetDir, stack, variables),
     typescriptConfig: typescriptConfigReport(targetDir, templatesRoot, stack),
     manifest: { version: 1, adopted: variables.DATE, layers, skills, stack, architecture, lenient },

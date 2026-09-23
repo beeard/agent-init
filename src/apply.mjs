@@ -59,7 +59,7 @@ git diff --cached --check
  * @param options - Run options.
  * @param options.force - Overwrite files that already exist.
  * @param options.dryRun - Report actions without touching the filesystem.
- * @param options.hooks - Install the pre-commit hook and point Git at it.
+ * @param options.hooks - Install the pre-commit hook and point Git at it, and register the Claude Code edit hook.
  * @returns Report with one entry per action plus notes.
  */
 export function applyPlan(plan, { force = false, dryRun = false, hooks = true } = {}) {
@@ -74,11 +74,11 @@ export function applyPlan(plan, { force = false, dryRun = false, hooks = true } 
   // completed, so every refusal a merge can raise leaves the target untouched.
   let simulated
   try {
-    simulated = applyFiles(plan, { force, adopted, view: makeView(root, true) })
+    simulated = applyFiles(plan, { force, adopted, hooks, view: makeView(root, true) })
   } catch (error) {
     throw Object.assign(error instanceof Error ? error : new Error(String(error)), { written: false })
   }
-  const results = dryRun ? simulated : applyFiles(plan, { force, adopted, view: makeView(root, false) })
+  const results = dryRun ? simulated : applyFiles(plan, { force, adopted, hooks, view: makeView(root, false) })
 
   const entry = applyPackage(plan.package, { dryRun, notes, root })
   if (entry !== null) results.push(entry)
@@ -106,10 +106,10 @@ export function applyPlan(plan, { force = false, dryRun = false, hooks = true } 
 /**
  * Apply the plan's files, links, and adoption manifest through a view.
  * @param plan - Plan produced by `buildPlan`.
- * @param options - Overwrite flag, whether the structure is already adopted, and the view to act through.
+ * @param options - Overwrite flag, whether the structure is already adopted, whether to register hooks, and the view to act through.
  * @returns One outcome entry per action.
  */
-function applyFiles(plan, { force, adopted, view }) {
+function applyFiles(plan, { force, adopted, hooks, view }) {
   const results = []
   for (const file of plan.files) {
     if (file.kind === 'append') results.push(appendFile(file, { force, view }))
@@ -118,6 +118,7 @@ function applyFiles(plan, { force, adopted, view }) {
     else results.push(writeFile(file, { force, view }))
   }
   for (const link of plan.symlinks) results.push(createSymlink(link, { view }))
+  if (hooks && plan.editHook !== undefined) results.push(registerEditHook(plan.editHook, { view }))
   results.push(recordManifest(plan, { view }))
   return results
 }
@@ -437,6 +438,54 @@ function mergeJson(file, { force, view }) {
   const detail = [...changes, ...(kept.length > 0 ? [`kept ${kept.join(', ')} as the file has them (--force to replace)`] : [])].join(', ')
   const outcome = changes.length === 0 && kept.length > 0 ? 'kept' : 'merged'
   return { relPath: file.relPath, outcome, detail: detail || 'already present' }
+}
+
+/**
+ * Register the edit hook in `.claude/settings.json`, keeping every hook the
+ * repository already has.
+ *
+ * The entry is appended to `hooks.PostToolUse` unless an entry there already
+ * runs the same command. A settings file this cannot read as that shape is left
+ * exactly as it is and reported, because it is the repository's configuration,
+ * not this tool's, and a guess would rewrite it.
+ *
+ * @param hook - `{ path, relPath, entry }` from the plan.
+ * @param options - The view to write through.
+ * @returns Outcome entry.
+ */
+function registerEditHook(hook, { view }) {
+  const reason = view.unsafe(hook.path)
+  if (reason !== null) return refused(hook.relPath, reason)
+  const command = hook.entry.hooks[0].command
+  if (!view.exists(hook.path)) {
+    view.write(hook.path, toJson({ hooks: { PostToolUse: [hook.entry] } }))
+    return { relPath: hook.relPath, outcome: 'added', detail: 'edit hook registered' }
+  }
+  const leave = why => ({
+    relPath: hook.relPath,
+    outcome: 'kept',
+    detail: `${why}; edit hook not registered — add ${JSON.stringify(command)} under hooks.PostToolUse yourself`,
+  })
+  let text
+  try {
+    text = view.read(hook.path)
+  } catch {
+    return leave('not a readable file')
+  }
+  let settings
+  try {
+    settings = JSON.parse(text)
+  } catch {
+    return leave('not valid JSON')
+  }
+  if (!isPlainObject(settings)) return leave('not a JSON object')
+  if (settings.hooks !== undefined && !isPlainObject(settings.hooks)) return leave('"hooks" is not an object')
+  const list = settings.hooks?.PostToolUse ?? []
+  if (!Array.isArray(list)) return leave('"hooks.PostToolUse" is not a list')
+  const registered = list.some(group => isPlainObject(group) && Array.isArray(group.hooks) && group.hooks.some(entry => entry?.command === command))
+  if (registered) return { relPath: hook.relPath, outcome: 'kept', detail: 'edit hook already registered' }
+  view.write(hook.path, toJson({ ...settings, hooks: { ...settings.hooks, PostToolUse: [...list, hook.entry] } }))
+  return { relPath: hook.relPath, outcome: 'merged', detail: '+ edit hook in hooks.PostToolUse' }
 }
 
 /**

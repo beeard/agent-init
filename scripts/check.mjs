@@ -17,7 +17,7 @@
  * repository fails here first.
  */
 
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { spawnSync } from 'node:child_process'
 import { dirname, join, resolve } from 'node:path'
@@ -166,8 +166,43 @@ function composeScaffold(options) {
     skills: BASE_SKILLS,
     ...options,
   })
+  // Git hooks stay off, so the check never touches a repository's config; the
+  // edit hook's registration is covered by the tests, and its checks run below.
   applyPlan(plan, { hooks: false })
   return dir
+}
+
+/**
+ * Run the composed edit hook on one broken file and one sound one.
+ *
+ * Each stack merges its checks into the hook's manifest, so a merge that broke
+ * the manifest, or a hook that no longer starts, would ship silently: the hook
+ * runs only inside an agent session, never in this suite. A JSON file is the
+ * probe because the base layer's JSON check needs nothing but Node.
+ *
+ * @param dir - Absolute path to the composed scaffold.
+ * @returns A failure message, or null when the hook rejects the one and accepts the other.
+ */
+function runComposedEditHook(dir) {
+  const probe = join(dir, 'edit-hook-probe.json')
+  const run = content => {
+    writeFileSync(probe, content, 'utf8')
+    return spawnSync(process.execPath, [join(dir, '.claude', 'hooks', 'post-edit.mjs')], {
+      input: JSON.stringify({ tool_name: 'Write', tool_input: { file_path: probe } }),
+      encoding: 'utf8',
+      env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
+      timeout: 60_000,
+    })
+  }
+  try {
+    const broken = run('{ "a": 1, }\n')
+    if (broken.status !== 2) return `broken JSON exited ${String(broken.status)}, expected 2: ${broken.stderr.trim()}`
+    const sound = run('{ "a": 1 }\n')
+    if (sound.status !== 0) return `sound JSON exited ${String(sound.status)}, expected 0: ${sound.stderr.trim()}`
+    return null
+  } finally {
+    rmSync(probe, { force: true })
+  }
 }
 
 /**
@@ -248,6 +283,15 @@ for (const { label, options } of scaffolds()) {
       failed++
       console.error(`FAIL  ${label.trim().padEnd(26)} composed gate suite`)
       for (const line of suite.output.split('\n')) console.error(`      ${line}`)
+    }
+
+    total++
+    const hook = runComposedEditHook(dir)
+    if (hook === null) {
+      console.log(`ok    ${label.trim().padEnd(26)} composed edit hook runs`)
+    } else {
+      failed++
+      console.error(`FAIL  ${label.trim().padEnd(26)} composed edit hook: ${hook}`)
     }
   } finally {
     rmSync(dir, { recursive: true, force: true })

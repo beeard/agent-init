@@ -1,7 +1,8 @@
 /** Shared helpers for the scaffolder's own tests. */
 
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -97,3 +98,55 @@ export function scaffold(args = []) {
   }
   return repo
 }
+
+/**
+ * Whether a command runs.
+ * @param command - Executable name.
+ * @param args - Arguments that make it exit successfully when present.
+ * @returns True when the command is available.
+ */
+export function available(command, args) {
+  const result = spawnSync(command, args, { encoding: 'utf8' })
+  return result.status === 0
+}
+
+export const HAS_GO = available('go', ['version'])
+export const HAS_CARGO = available('cargo', ['--version'])
+export const HAS_PYTHON = ['python3', 'python'].some(candidate => available(candidate, ['-c', 'import ast']))
+
+/**
+ * The TypeScript compiler's package directory, when one is installed where a
+ * test can reach it.
+ *
+ * `verify-typescript-doc-comments` reads the compiler from the repository it
+ * judges, so a sandbox needs a real one linked into its `node_modules`; a stub
+ * cannot parse a syntax tree. Continuous integration installs TypeScript
+ * globally for exactly that reason, and a developer machine may have it in this
+ * package's own `node_modules` instead. Neither is required, so a test that
+ * needs it skips rather than failing where both are absent.
+ *
+ * @returns Absolute path to a `typescript` package directory, or null.
+ */
+function typescriptPackage() {
+  const globalRoot = spawnSync('npm', ['root', '--global'], { encoding: 'utf8' })
+  // `npm root --global` already names a `node_modules` directory, so only the
+  // package-local candidate needs that segment appended.
+  const candidates = [join(PACKAGE_ROOT, 'node_modules', 'typescript')]
+  if (globalRoot.status === 0 && globalRoot.stdout.trim() !== '') candidates.push(join(globalRoot.stdout.trim(), 'typescript'))
+  const require = createRequire(import.meta.url)
+  for (const dir of candidates) {
+    if (!existsSync(join(dir, 'package.json'))) continue
+    try {
+      // TypeScript 7 exports only its version from the package root, so a
+      // package without the compiler API is not one the gate can analyze with;
+      // keep looking rather than linking a compiler it will refuse.
+      if (typeof require(dir).createSourceFile === 'function') return dir
+    } catch {
+      // Unreadable or unusable: the next candidate may still work.
+    }
+  }
+  return null
+}
+
+/** The TypeScript compiler a test can link into a sandbox, or null. */
+export const TYPESCRIPT = typescriptPackage()

@@ -66,6 +66,8 @@ node scripts/gates/run.mjs --group commit
 
 Gates in the `commit` group receive `--staged`, so they inspect only what you are about to commit. That is what keeps the hook fast on a large repository; run the full gate suite before a push.
 
+After every edit, `.claude/hooks/post-edit.mjs` checks the file you wrote: its syntax, then the formatter the repository uses. A rejection names the file and the error; fix it before the next edit. The checks per file type are in `.claude/hooks/post-edit.json`, and each language layer adds its own.
+
 Scope a change against a base branch before deciding what evidence it needs:
 
 ```sh

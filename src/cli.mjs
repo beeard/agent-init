@@ -40,7 +40,7 @@ Options
   --lenient            Mark every gate advisory, so adopting on an existing
                        repository does not fail on its first run. Tighten the
                        gates in scripts/gates/gates.json as you fix findings.
-  --no-hooks           Do not install the pre-commit hook
+  --no-hooks           Do not install the pre-commit hook or register the edit hook
   --force              Overwrite files that already exist
   --dry-run            Print the plan without writing anything
   --allow-non-git      Scaffold outside a Git worktree

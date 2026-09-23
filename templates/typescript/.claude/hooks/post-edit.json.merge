@@ -1,0 +1,8 @@
+{
+  "checks": {
+    "typescript-syntax": {
+      "extensions": [".ts", ".tsx", ".mts", ".cts"],
+      "run": ["{node}", "{hooks}/typescript-syntax.mjs", "{file}"]
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "checks": {
+    "gofmt": {
+      "extensions": [".go"],
+      "run": ["gofmt", "-w", "{file}"]
+    }
+  }
+}
