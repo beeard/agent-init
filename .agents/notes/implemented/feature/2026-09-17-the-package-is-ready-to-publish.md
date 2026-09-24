@@ -56,7 +56,7 @@ The command is `agent-init`, from `bin`, whatever the package is called; only th
 
 The runner image carries Python, Go, and Rust, and the workflow installs the `typescript` package so the TypeScript gate resolves a compiler instead of a missing toolchain — a stack gate that cannot reach its toolchain fails loud, which under `check.mjs` would surface as a failing composed run for a reason that has nothing to do with the change.
 
-What the workflow does **not** verify: the registry round trip, which was verified by hand instead. `@beeard/agent-init@0.1.0` is published and fetched back from the registry with a fresh cache: `npm view` reports the version, `bin`, `license`, and `repository`, `npx @beeard/agent-init@0.1.0 --install-skill` copies the skill into an empty `$HOME`, and `npx @beeard/agent-init@0.1.0 . --stack python` scaffolds a repository whose eight gates then pass. The GitHub URLs in `package.json` still answer 404 while the repository is private, which is the one gap publishing the package did not close.
+What the workflow does **not** verify: the registry round trip, which was verified by hand instead. `@beeard/agent-init@0.1.0` is published and fetched back from the registry with a fresh cache: `npm view` reports the version, `bin`, `license`, and `repository`, `npx @beeard/agent-init@0.1.0 --install-skill` copies the skill into an empty `$HOME`, and `npx @beeard/agent-init@0.1.0 . --stack python` scaffolds a repository whose eight gates then pass. The GitHub URLs in `package.json` answered 404 until the repository was made public.
 
 ## Alternatives considered
 

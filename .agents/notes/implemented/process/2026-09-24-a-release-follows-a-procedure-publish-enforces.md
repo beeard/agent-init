@@ -12,7 +12,7 @@ Nothing stopped a publish from a dirty tree, an untagged commit, or a failing ch
 
 ## Decision
 
-**The procedure is a skill, `.agents/skills/agent-init-release/SKILL.md`**, linked at `.claude/skills/agent-init-release` so Claude Code registers it. It covers confirming the base, choosing the version against the registry, bumping it with every pinned reference, the three checks and a pack dry run, the `chore: <version>` commit and tag, the publish the user runs with current npm, and the registry round trip with an empty cache and home.
+**The procedure is a skill, `.agents/skills/agent-init-release/SKILL.md`**, linked at `.claude/skills/agent-init-release` so Claude Code registers it. It covers confirming the base, choosing the version against the registry, bumping it with every pinned reference, the three checks and a pack dry run, the `chore: <version>` commit and tag, the publish the user runs with current npm, the registry round trip with an empty cache and home, and a GitHub release whose notes are rewritten for someone running the tool.
 
 **`npm publish` enforces the parts a script can check.** `prepublishOnly` runs `scripts/prepublish.mjs`, which refuses when `package.json` or any path in `files` has an uncommitted or untracked change, when `HEAD` is not tagged `v<version>`, or when `npm test`, `npm run check`, or `npm run format:check` fails. It runs for whoever publishes, from any shell. Changes outside the shipped paths do not block, because they are not in the tarball.
 
@@ -38,4 +38,4 @@ A publish now fails from anything but a committed, tagged, passing tree, and the
 
 `prepublishOnly` runs the full test suite and the dogfood check, so a publish takes as long as both, and the Go, Rust, and TypeScript tests skip on a machine without those toolchains exactly as they do in `npm test`. CI remains the place those run.
 
-The registry round trip is still manual. It needs the published package, so it cannot run before publishing, and the skill makes it a named step rather than a memory.
+The registry round trip and the release notes are still manual. Both need the published package, so neither can run before publishing, and the skill makes them named steps rather than a memory. The notes are a GitHub release rather than a `CHANGELOG.md` in the package: the repository is public, so they are readable without a file every release has to edit, and a changelog can follow once users ask for one in the package itself.
