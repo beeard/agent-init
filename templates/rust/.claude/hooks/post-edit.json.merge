@@ -1,0 +1,8 @@
+{
+  "checks": {
+    "rustfmt": {
+      "extensions": [".rs"],
+      "run": ["{node}", "{hooks}/rustfmt-file.mjs", "{file}"]
+    }
+  }
+}

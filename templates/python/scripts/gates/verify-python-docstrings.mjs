@@ -21,9 +21,7 @@
 import { readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { resolve } from 'node:path'
-import {
-  REPOSITORY_SKIP_DIRECTORIES, collectFiles, corpusSkipPredicate, isMain, readConfig, stagedSources, stagedSubset,
-} from './lib/repo-files.mjs'
+import { REPOSITORY_SKIP_DIRECTORIES, collectFiles, corpusSkipPredicate, isMain, readConfig, stagedSources, stagedSubset } from './lib/repo-files.mjs'
 
 const ROOT = resolve(import.meta.dirname, '..', '..')
 

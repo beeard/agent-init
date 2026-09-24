@@ -127,7 +127,14 @@ Green means the structure is internally consistent. With `--lenient` the finding
 
 Do not point `core.hooksPath` at `.githooks` to "fix" this without asking. Git has one hooksPath, so that silently disables whatever the other directory was providing — a global `pre-push` review hook, for instance. Say what would be lost and let the user choose.
 
-**3. Do not commit.** Say the tree is ready and let the user decide whether it goes in as one commit. The structure's own rules forbid committing and pushing unless asked.
+**3. Read what the edit hook reported** on `.claude/settings.json`:
+
+- `edit hook registered`, `+ edit hook in hooks.PostToolUse`, or `already registered` — Claude Code checks each file an agent edits. Nothing to do.
+- `not valid JSON` or another shape it could not read — the file was left exactly as it was. Tell the user, and give them the command the run printed to add under `hooks.PostToolUse` themselves.
+
+A check that needs a toolchain the machine lacks reports `not fully checked` on each edit without blocking it. Name the missing tool to the user rather than removing the check.
+
+**4. Do not commit.** Say the tree is ready and let the user decide whether it goes in as one commit. The structure's own rules forbid committing and pushing unless asked.
 
 ## What not to do
 

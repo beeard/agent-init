@@ -9,61 +9,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { createRequire } from 'node:module'
-import { existsSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { removeSandbox, runGate, scaffold, PACKAGE_ROOT } from './helpers.mjs'
-
-/**
- * Whether a command runs.
- * @param command - Executable name.
- * @param args - Arguments that make it exit successfully when present.
- * @returns True when the command is available.
- */
-function available(command, args) {
-  const result = spawnSync(command, args, { encoding: 'utf8' })
-  return result.status === 0
-}
-
-const HAS_GO = available('go', ['version'])
-const HAS_CARGO = available('cargo', ['--version'])
-const HAS_PYTHON = ['python3', 'python'].some(candidate => available(candidate, ['-c', 'import ast']))
-
-/**
- * The TypeScript compiler's package directory, when one is installed where a
- * test can reach it.
- *
- * `verify-typescript-doc-comments` reads the compiler from the repository it
- * judges, so a sandbox needs a real one linked into its `node_modules`; a stub
- * cannot parse a syntax tree. Continuous integration installs TypeScript
- * globally for exactly that reason, and a developer machine may have it in this
- * package's own `node_modules` instead. Neither is required, so a test that
- * needs it skips rather than failing where both are absent.
- *
- * @returns Absolute path to a `typescript` package directory, or null.
- */
-function typescriptPackage() {
-  const globalRoot = spawnSync('npm', ['root', '--global'], { encoding: 'utf8' })
-  // `npm root --global` already names a `node_modules` directory, so only the
-  // package-local candidate needs that segment appended.
-  const candidates = [join(PACKAGE_ROOT, 'node_modules', 'typescript')]
-  if (globalRoot.status === 0 && globalRoot.stdout.trim() !== '') candidates.push(join(globalRoot.stdout.trim(), 'typescript'))
-  const require = createRequire(import.meta.url)
-  for (const dir of candidates) {
-    if (!existsSync(join(dir, 'package.json'))) continue
-    try {
-      // TypeScript 7 exports only its version from the package root, so a
-      // package without the compiler API is not one the gate can analyze with;
-      // keep looking rather than linking a compiler it will refuse.
-      if (typeof require(dir).createSourceFile === 'function') return dir
-    } catch {
-      // Unreadable or unusable: the next candidate may still work.
-    }
-  }
-  return null
-}
-
-const TYPESCRIPT = typescriptPackage()
+import { HAS_CARGO, HAS_GO, HAS_PYTHON, TYPESCRIPT, removeSandbox, runGate, scaffold, PACKAGE_ROOT } from './helpers.mjs'
 
 /**
  * Write a file into a scaffolded repository.
@@ -101,7 +49,10 @@ test('go: the analysis program stays out of the module build', { skip: !HAS_GO &
   try {
     write(repo, 'go.mod', 'module example.com/demo\n\ngo 1.22\n')
     write(repo, 'demo/demo.go', '// Package demo holds code.\npackage demo\n\n// Nothing does nothing.\nfunc Nothing() {}\n')
-    for (const args of [['build', './...'], ['vet', './...']]) {
+    for (const args of [
+      ['build', './...'],
+      ['vet', './...'],
+    ]) {
       const result = spawnSync('go', args, { cwd: repo, encoding: 'utf8' })
       assert.equal(result.status, 0, `go ${args.join(' ')} failed: ${result.stderr}`)
     }
@@ -303,7 +254,11 @@ test('rust: documented items pass and undocumented public items are reported', {
 
     // A module only enters the crate once it is declared, which is Rust's own
     // rule rather than a limitation of the gate.
-    write(repo, 'src/lib.rs', '//! Demo.\n#![warn(missing_docs)]\n\n/// Documented.\npub fn documented() {}\n\n/// The bare module.\npub mod bare;\n\nfn private() {}\n')
+    write(
+      repo,
+      'src/lib.rs',
+      '//! Demo.\n#![warn(missing_docs)]\n\n/// Documented.\npub fn documented() {}\n\n/// The bare module.\npub mod bare;\n\nfn private() {}\n',
+    )
     write(repo, 'src/bare.rs', '//! Bare.\n\npub fn bare() {}\n')
     const result = runGate(repo, 'verify-rust-doc-comments.mjs')
     assert.equal(result.code, 1)
@@ -362,42 +317,55 @@ function typescriptRepo() {
   return repo
 }
 
-test('typescript: an undocumented exported function and class are reported', { skip: TYPESCRIPT === null && 'no typescript with the compiler API is installed' }, () => {
-  const repo = typescriptRepo()
-  try {
-    write(repo, 'src/index.ts', '/** Adds. */\nexport function add(a: number): number { return a }\n\n/** A store. */\nexport class Store {}\n\nfunction internal(): void {}\n')
-    const passed = runGate(repo, 'verify-typescript-doc-comments.mjs')
-    assert.equal(passed.code, 0, passed.output)
+test(
+  'typescript: an undocumented exported function and class are reported',
+  { skip: TYPESCRIPT === null && 'no typescript with the compiler API is installed' },
+  () => {
+    const repo = typescriptRepo()
+    try {
+      write(
+        repo,
+        'src/index.ts',
+        '/** Adds. */\nexport function add(a: number): number { return a }\n\n/** A store. */\nexport class Store {}\n\nfunction internal(): void {}\n',
+      )
+      const passed = runGate(repo, 'verify-typescript-doc-comments.mjs')
+      assert.equal(passed.code, 0, passed.output)
 
-    write(repo, 'src/index.ts', 'export function add(a: number): number { return a }\n\nexport class Store {}\n\nfunction internal(): void {}\n')
-    const result = runGate(repo, 'verify-typescript-doc-comments.mjs')
-    assert.equal(result.code, 1, result.output)
-    assert.match(result.output, /src\/index\.ts:1 {2}function add/u)
-    assert.match(result.output, /src\/index\.ts:3 {2}class Store/u)
-    assert.doesNotMatch(result.output, /internal/u)
-  } finally {
-    removeSandbox(repo)
-  }
-})
+      write(repo, 'src/index.ts', 'export function add(a: number): number { return a }\n\nexport class Store {}\n\nfunction internal(): void {}\n')
+      const result = runGate(repo, 'verify-typescript-doc-comments.mjs')
+      assert.equal(result.code, 1, result.output)
+      assert.match(result.output, /src\/index\.ts:1 {2}function add/u)
+      assert.match(result.output, /src\/index\.ts:3 {2}class Store/u)
+      assert.doesNotMatch(result.output, /internal/u)
+    } finally {
+      removeSandbox(repo)
+    }
+  },
+)
 
-test('typescript: the JSDoc on the first overload covers the group', { skip: TYPESCRIPT === null && 'no typescript with the compiler API is installed' }, () => {
-  const repo = typescriptRepo()
-  try {
-    const signatures = 'export function fmt(a: string): string\nexport function fmt(a: number): string\nexport function fmt(a: unknown): string { return String(a) }\n'
-    write(repo, 'src/index.ts', `/** Formats a value. */\n${signatures}`)
-    const passed = runGate(repo, 'verify-typescript-doc-comments.mjs')
-    assert.equal(passed.code, 0, passed.output)
+test(
+  'typescript: the JSDoc on the first overload covers the group',
+  { skip: TYPESCRIPT === null && 'no typescript with the compiler API is installed' },
+  () => {
+    const repo = typescriptRepo()
+    try {
+      const signatures =
+        'export function fmt(a: string): string\nexport function fmt(a: number): string\nexport function fmt(a: unknown): string { return String(a) }\n'
+      write(repo, 'src/index.ts', `/** Formats a value. */\n${signatures}`)
+      const passed = runGate(repo, 'verify-typescript-doc-comments.mjs')
+      assert.equal(passed.code, 0, passed.output)
 
-    // An undocumented group is one finding, not one per signature.
-    write(repo, 'src/index.ts', signatures)
-    const result = runGate(repo, 'verify-typescript-doc-comments.mjs')
-    assert.equal(result.code, 1, result.output)
-    assert.match(result.output, /1 undocumented exported declaration/u)
-    assert.match(result.output, /src\/index\.ts:1 {2}function fmt/u)
-  } finally {
-    removeSandbox(repo)
-  }
-})
+      // An undocumented group is one finding, not one per signature.
+      write(repo, 'src/index.ts', signatures)
+      const result = runGate(repo, 'verify-typescript-doc-comments.mjs')
+      assert.equal(result.code, 1, result.output)
+      assert.match(result.output, /1 undocumented exported declaration/u)
+      assert.match(result.output, /src\/index\.ts:1 {2}function fmt/u)
+    } finally {
+      removeSandbox(repo)
+    }
+  },
+)
 
 test('typescript: a namespace with a dotted name is walked', { skip: TYPESCRIPT === null && 'no typescript with the compiler API is installed' }, () => {
   const repo = typescriptRepo()
@@ -453,15 +421,15 @@ test('every stack layer registers its gate without replacing the base inventory'
   }
   // Derived from the base manifest rather than a copied list, so adding a base
   // gate does not require editing this test.
-  const baseGates = Object.keys(JSON.parse(
-    readFileSync(join(PACKAGE_ROOT, 'templates', 'base', 'scripts', 'gates', 'gates.json'), 'utf8'),
-  ))
+  const baseGates = Object.keys(JSON.parse(readFileSync(join(PACKAGE_ROOT, 'templates', 'base', 'scripts', 'gates', 'gates.json'), 'utf8')))
   for (const stack of Object.keys(expectedGates)) {
     const repo = scaffold(['--name', 'demo', '--stack', stack, '--no-hooks'])
     try {
       const gates = JSON.parse(readFileSync(join(repo, 'scripts', 'gates', 'gates.json'), 'utf8'))
       for (const name of baseGates) assert.ok(Object.hasOwn(gates, name), `${stack} dropped the base gate ${name}`)
-      const added = Object.keys(gates).filter(name => !baseGates.includes(name)).sort()
+      const added = Object.keys(gates)
+        .filter(name => !baseGates.includes(name))
+        .sort()
       assert.deepEqual(added, Object.keys(expectedGates[stack]).sort(), `${stack} registered the wrong gates`)
       for (const [name, groups] of Object.entries(expectedGates[stack])) {
         assert.equal(gates[name].advisory, true, `${name} must ship advisory`)
@@ -503,9 +471,11 @@ function stubCompiler(repo) {
   mkdirSync(join(dir, 'lib'), { recursive: true })
   writeFileSync(join(dir, 'package.json'), '{"name":"typescript","version":"0.0.0","main":"lib/typescript.js"}\n', 'utf8')
   writeFileSync(join(dir, 'lib', 'typescript.js'), 'module.exports = {}\n', 'utf8')
-  writeFileSync(join(dir, 'lib', 'tsc.js'),
+  writeFileSync(
+    join(dir, 'lib', 'tsc.js'),
     'if (process.env.FAKE_TSC_EXIT) { console.error("src/index.ts(1,14): error TS2322: stub"); process.exit(1) }\nprocess.exit(0)\n',
-    'utf8')
+    'utf8',
+  )
 }
 
 test('typescript: no TypeScript file means nothing to type-check', () => {

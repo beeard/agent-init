@@ -1,0 +1,6 @@
+# JSON is written by JSON.stringify(value, null, 2) — the scaffolder's merges and
+# npm both serialize it that way — so Prettier leaves it to them.
+*.json
+# Markdown has its own gates: one physical line per paragraph, and word budgets.
+*.md
+node_modules/

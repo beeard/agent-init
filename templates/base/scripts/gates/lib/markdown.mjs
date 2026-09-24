@@ -130,8 +130,7 @@ export function classifyLines(lines) {
 
     if (fence !== null) {
       const closing = FENCE_CLOSE.exec(rest)
-      if (closing !== null && closing[1][0] === fence.char && closing[1].length >= fence.length
-        && columns <= fence.container + 3) {
+      if (closing !== null && closing[1][0] === fence.char && closing[1].length >= fence.length && columns <= fence.container + 3) {
         fence = null
       }
       push('fence')
@@ -360,7 +359,7 @@ function parseDestination(text, start) {
  */
 function skipTitle(text, start) {
   const opener = text[start]
-  const closer = { '"': '"', '\'': '\'', '(': ')' }[opener]
+  const closer = { '"': '"', "'": "'", '(': ')' }[opener]
   if (closer === undefined) return start
   for (let index = start + 1; index < text.length; index++) {
     const character = text[index]

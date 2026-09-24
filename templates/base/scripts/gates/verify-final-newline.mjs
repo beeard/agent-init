@@ -32,17 +32,33 @@
 import { readFileSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import {
-  REPOSITORY_SKIP_DIRECTORIES, collectFiles, corpusSkipPredicate, declaredGlobs,
-  isMain, readConfig, stagedSources, stagedSubset,
+  REPOSITORY_SKIP_DIRECTORIES,
+  collectFiles,
+  corpusSkipPredicate,
+  declaredGlobs,
+  isMain,
+  readConfig,
+  stagedSources,
+  stagedSubset,
 } from './lib/repo-files.mjs'
 
 const ROOT = resolve(import.meta.dirname, '..', '..')
 
 /** Text formats checked in every repository, whatever the configuration declares. */
 const DEFAULT_GLOBS = [
-  '**/*.md', '**/*.mjs', '**/*.js', '**/*.ts', '**/*.tsx',
-  '**/*.json', '**/*.yml', '**/*.yaml', '**/*.toml',
-  '**/*.py', '**/*.go', '**/*.rs', '**/*.sh',
+  '**/*.md',
+  '**/*.mjs',
+  '**/*.js',
+  '**/*.ts',
+  '**/*.tsx',
+  '**/*.json',
+  '**/*.yml',
+  '**/*.yaml',
+  '**/*.toml',
+  '**/*.py',
+  '**/*.go',
+  '**/*.rs',
+  '**/*.sh',
 ]
 
 /**

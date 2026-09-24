@@ -194,9 +194,7 @@ export function writeCoordinate(dir, coordinate, dryRun = false) {
  */
 export function installSetupSkill(source, { dir = userSkillsDir(), link = false, dryRun = false, coordinate = null } = {}) {
   const target = resolve(dir, SETUP_SKILL)
-  const result = link
-    ? { target, mode: 'link', ...linkPath(source, target, dryRun) }
-    : { target, mode: 'copy', ...copyOutcome(source, target, dryRun) }
+  const result = link ? { target, mode: 'link', ...linkPath(source, target, dryRun) } : { target, mode: 'copy', ...copyOutcome(source, target, dryRun) }
   // Recorded after the skill is in place: a coordinate pointing at a skill that
   // is not there is the same false "installed" this file exists to prevent.
   const recorded = writeCoordinate(dirname(target), coordinate, dryRun)

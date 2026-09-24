@@ -37,11 +37,10 @@ function sandboxEnv(home) {
  * @returns Exit code and combined output.
  */
 function install(home, args = [], extra = {}) {
-  const result = spawnSync(
-    process.execPath,
-    [join(PACKAGE_ROOT, 'scripts', 'install-local.mjs'), ...args],
-    { encoding: 'utf8', env: { ...sandboxEnv(home), ...extra } },
-  )
+  const result = spawnSync(process.execPath, [join(PACKAGE_ROOT, 'scripts', 'install-local.mjs'), ...args], {
+    encoding: 'utf8',
+    env: { ...sandboxEnv(home), ...extra },
+  })
   return { code: result.status ?? 1, output: `${result.stdout}${result.stderr}` }
 }
 

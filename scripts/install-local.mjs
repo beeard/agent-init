@@ -166,9 +166,7 @@ if (hooks === null) {
 
 // `CLAUDE_CONFIG_DIR` relocates Claude's whole configuration, so the skills
 // directory follows it; the hard-coded default is the common case only.
-const SKILLS_DIR = process.env.CLAUDE_CONFIG_DIR
-  ? join(resolve(process.env.CLAUDE_CONFIG_DIR), 'skills')
-  : join(HOME, '.claude', 'skills')
+const SKILLS_DIR = process.env.CLAUDE_CONFIG_DIR ? join(resolve(process.env.CLAUDE_CONFIG_DIR), 'skills') : join(HOME, '.claude', 'skills')
 
 outcomes.push(link(join(ROOT, 'skills', 'agent-init-setup'), join(SKILLS_DIR, 'agent-init-setup'), dryRun))
 

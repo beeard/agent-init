@@ -148,10 +148,7 @@ function isCompileError(diagnostic) {
  * @returns The lint diagnostics, the compile errors, and a failure message when cargo itself failed.
  */
 function checkTarget(root, cargo, target) {
-  const args = [
-    'rustc', '--package', target.package, ...target.selector,
-    '--profile', 'check', '--message-format=json', '--', '-W', LINT,
-  ]
+  const args = ['rustc', '--package', target.package, ...target.selector, '--profile', 'check', '--message-format=json', '--', '-W', LINT]
   const result = spawnSync(cargo, args, { cwd: root, encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 })
   const lints = []
   const errors = []

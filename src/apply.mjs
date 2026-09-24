@@ -6,7 +6,19 @@
  * run asked for it: re-running the scaffolder must be safe.
  */
 
-import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
@@ -29,7 +41,8 @@ const endMarker = layer => `<!-- agent-init:end ${layer} -->`
  * building, so the plan withholds those findings and this note is the only
  * thing the run says about the module system.
  */
-const BUNDLER_NOTE = 'tsconfig.json: a bundler builds this project, so the module and target settings are the framework\'s to choose. "NodeNext" and "type": "module" describe a Node program; apply the strictness options if they help, and leave the module and target values alone.'
+const BUNDLER_NOTE =
+  'tsconfig.json: a bundler builds this project, so the module and target settings are the framework\'s to choose. "NodeNext" and "type": "module" describe a Node program; apply the strictness options if they help, and leave the module and target values alone.'
 
 /** The pre-commit hook, kept to checks that stay fast on every commit. */
 const PRE_COMMIT = `#!/bin/sh
@@ -46,7 +59,7 @@ git diff --cached --check
  * @param options - Run options.
  * @param options.force - Overwrite files that already exist.
  * @param options.dryRun - Report actions without touching the filesystem.
- * @param options.hooks - Install the pre-commit hook and point Git at it.
+ * @param options.hooks - Install the pre-commit hook and point Git at it, and register the Claude Code edit hook.
  * @returns Report with one entry per action plus notes.
  */
 export function applyPlan(plan, { force = false, dryRun = false, hooks = true } = {}) {
@@ -61,11 +74,11 @@ export function applyPlan(plan, { force = false, dryRun = false, hooks = true } 
   // completed, so every refusal a merge can raise leaves the target untouched.
   let simulated
   try {
-    simulated = applyFiles(plan, { force, adopted, view: makeView(root, true) })
+    simulated = applyFiles(plan, { force, adopted, hooks, view: makeView(root, true) })
   } catch (error) {
     throw Object.assign(error instanceof Error ? error : new Error(String(error)), { written: false })
   }
-  const results = dryRun ? simulated : applyFiles(plan, { force, adopted, view: makeView(root, false) })
+  const results = dryRun ? simulated : applyFiles(plan, { force, adopted, hooks, view: makeView(root, false) })
 
   const entry = applyPackage(plan.package, { dryRun, notes, root })
   if (entry !== null) results.push(entry)
@@ -75,13 +88,17 @@ export function applyPlan(plan, { force = false, dryRun = false, hooks = true } 
     // Node reads a `.ts` file as ESM only when the package says so, so the ESM
     // standing orders cannot hold while this value does not. A bundler resolves
     // the imports itself, so for that project the value is not a gap.
-    notes.push(`package.json "type" is ${plan.package.moduleType === null ? 'unset' : JSON.stringify(plan.package.moduleType)}; the TypeScript orders assume ESM. Set "type": "module", or name the files .mts. Left as is — ask the user.`)
+    notes.push(
+      `package.json "type" is ${plan.package.moduleType === null ? 'unset' : JSON.stringify(plan.package.moduleType)}; the TypeScript orders assume ESM. Set "type": "module", or name the files .mts. Left as is — ask the user.`,
+    )
   }
 
   if (hooks) results.push(installHook(plan.targetDir, { force, dryRun, notes, root }))
 
   if (results.some(result => result.outcome === 'refused')) {
-    notes.push('a path marked refused is a symlink that dangles or leads out of the repository, and nothing was written through it. Replace it with a regular file, or remove it, and re-run.')
+    notes.push(
+      'a path marked refused is a symlink that dangles or leads out of the repository, and nothing was written through it. Replace it with a regular file, or remove it, and re-run.',
+    )
   }
   return { results, notes }
 }
@@ -89,10 +106,10 @@ export function applyPlan(plan, { force = false, dryRun = false, hooks = true } 
 /**
  * Apply the plan's files, links, and adoption manifest through a view.
  * @param plan - Plan produced by `buildPlan`.
- * @param options - Overwrite flag, whether the structure is already adopted, and the view to act through.
+ * @param options - Overwrite flag, whether the structure is already adopted, whether to register hooks, and the view to act through.
  * @returns One outcome entry per action.
  */
-function applyFiles(plan, { force, adopted, view }) {
+function applyFiles(plan, { force, adopted, hooks, view }) {
   const results = []
   for (const file of plan.files) {
     if (file.kind === 'append') results.push(appendFile(file, { force, view }))
@@ -101,6 +118,7 @@ function applyFiles(plan, { force, adopted, view }) {
     else results.push(writeFile(file, { force, view }))
   }
   for (const link of plan.symlinks) results.push(createSymlink(link, { view }))
+  if (hooks && plan.editHook !== undefined) results.push(registerEditHook(plan.editHook, { view }))
   results.push(recordManifest(plan, { view }))
   return results
 }
@@ -265,7 +283,14 @@ function appendFile(file, { force, view }) {
  * @returns True when the content is already there.
  */
 function carriesContent(current, content) {
-  const lines = [...new Set(content.split('\n').map(line => line.trim()).filter(line => line.length >= 20))]
+  const lines = [
+    ...new Set(
+      content
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length >= 20),
+    ),
+  ]
   if (lines.length === 0) return current.includes(content.trim())
   const held = new Set(current.split(/\r?\n/u).map(line => line.trim()))
   return lines.filter(line => held.has(line)).length * 2 >= lines.length
@@ -376,9 +401,9 @@ function mergeJson(file, { force, view }) {
       // adopted an older form of the same file is exactly the case the merge
       // cannot resolve, because only the file's author knows which form won.
       throw new Error(
-        `${file.relPath}: "${key}" is ${shapeOf(held)} in the file and ${shapeOf(value)} in the template, `
-        + 'and neither form can be merged into the other. Convert the entry by hand, or delete the file '
-        + 'and re-run to rebuild it from the templates; an entry they do not declare is lost with it.',
+        `${file.relPath}: "${key}" is ${shapeOf(held)} in the file and ${shapeOf(value)} in the template, ` +
+          'and neither form can be merged into the other. Convert the entry by hand, or delete the file ' +
+          'and re-run to rebuild it from the templates; an entry they do not declare is lost with it.',
       )
     }
     if (!Object.hasOwn(base, key)) {
@@ -410,12 +435,57 @@ function mergeJson(file, { force, view }) {
   }
   const text = toJson(merged)
   if (text !== current) view.write(file.path, text)
-  const detail = [
-    ...changes,
-    ...(kept.length > 0 ? [`kept ${kept.join(', ')} as the file has them (--force to replace)`] : []),
-  ].join(', ')
+  const detail = [...changes, ...(kept.length > 0 ? [`kept ${kept.join(', ')} as the file has them (--force to replace)`] : [])].join(', ')
   const outcome = changes.length === 0 && kept.length > 0 ? 'kept' : 'merged'
   return { relPath: file.relPath, outcome, detail: detail || 'already present' }
+}
+
+/**
+ * Register the edit hook in `.claude/settings.json`, keeping every hook the
+ * repository already has.
+ *
+ * The entry is appended to `hooks.PostToolUse` unless an entry there already
+ * runs the same command. A settings file this cannot read as that shape is left
+ * exactly as it is and reported, because it is the repository's configuration,
+ * not this tool's, and a guess would rewrite it.
+ *
+ * @param hook - `{ path, relPath, entry }` from the plan.
+ * @param options - The view to write through.
+ * @returns Outcome entry.
+ */
+function registerEditHook(hook, { view }) {
+  const reason = view.unsafe(hook.path)
+  if (reason !== null) return refused(hook.relPath, reason)
+  const command = hook.entry.hooks[0].command
+  if (!view.exists(hook.path)) {
+    view.write(hook.path, toJson({ hooks: { PostToolUse: [hook.entry] } }))
+    return { relPath: hook.relPath, outcome: 'added', detail: 'edit hook registered' }
+  }
+  const leave = why => ({
+    relPath: hook.relPath,
+    outcome: 'kept',
+    detail: `${why}; edit hook not registered — add ${JSON.stringify(command)} under hooks.PostToolUse yourself`,
+  })
+  let text
+  try {
+    text = view.read(hook.path)
+  } catch {
+    return leave('not a readable file')
+  }
+  let settings
+  try {
+    settings = JSON.parse(text)
+  } catch {
+    return leave('not valid JSON')
+  }
+  if (!isPlainObject(settings)) return leave('not a JSON object')
+  if (settings.hooks !== undefined && !isPlainObject(settings.hooks)) return leave('"hooks" is not an object')
+  const list = settings.hooks?.PostToolUse ?? []
+  if (!Array.isArray(list)) return leave('"hooks.PostToolUse" is not a list')
+  const registered = list.some(group => isPlainObject(group) && Array.isArray(group.hooks) && group.hooks.some(entry => entry?.command === command))
+  if (registered) return { relPath: hook.relPath, outcome: 'kept', detail: 'edit hook already registered' }
+  view.write(hook.path, toJson({ ...settings, hooks: { ...settings.hooks, PostToolUse: [...list, hook.entry] } }))
+  return { relPath: hook.relPath, outcome: 'merged', detail: '+ edit hook in hooks.PostToolUse' }
 }
 
 /**
@@ -429,10 +499,14 @@ function parseObject(relPath, text) {
   try {
     value = JSON.parse(text)
   } catch (error) {
-    throw new Error(`${relPath}: the file is not valid JSON (${error instanceof Error ? error.message : String(error)}), so the template cannot be merged into it. Fix or delete the file, and re-run.`)
+    throw new Error(
+      `${relPath}: the file is not valid JSON (${error instanceof Error ? error.message : String(error)}), so the template cannot be merged into it. Fix or delete the file, and re-run.`,
+    )
   }
   if (!isPlainObject(value)) {
-    throw new Error(`${relPath}: the file holds ${shapeOf(value)}, not a JSON object, so the template's entries cannot be merged into it. Convert it by hand, or delete the file and re-run to rebuild it from the templates.`)
+    throw new Error(
+      `${relPath}: the file holds ${shapeOf(value)}, not a JSON object, so the template's entries cannot be merged into it. Convert it by hand, or delete the file and re-run to rebuild it from the templates.`,
+    )
   }
   return value
 }
@@ -568,8 +642,9 @@ function applyPackage(contribution, { dryRun, notes, root }) {
     const created = contribution.create
     if (!dryRun) {
       writeText(contribution.path, toJson(created))
-      notes.push('package.json was created; review it before committing, and run `npm install` to fetch '
-        + `${Object.keys(created.devDependencies).join(', ')}.`)
+      notes.push(
+        'package.json was created; review it before committing, and run `npm install` to fetch ' + `${Object.keys(created.devDependencies).join(', ')}.`,
+      )
     }
     const entries = [...Object.keys(created.scripts), ...Object.keys(created.devDependencies)]
     return { relPath: 'package.json', outcome: 'added', detail: `+ ${entries.join(', ')}` }
@@ -590,10 +665,9 @@ function applyPackage(contribution, { dryRun, notes, root }) {
     }
     writeText(contribution.path, toJson(pkg))
   }
-  const detail = [
-    scripts.length > 0 ? `+ ${scripts.join(', ')}` : null,
-    dependencies.length > 0 ? `+ ${dependencies.join(', ')} in devDependencies` : null,
-  ].filter(part => part !== null).join(', ')
+  const detail = [scripts.length > 0 ? `+ ${scripts.join(', ')}` : null, dependencies.length > 0 ? `+ ${dependencies.join(', ')} in devDependencies` : null]
+    .filter(part => part !== null)
+    .join(', ')
   if (!dryRun && dependencies.some(name => !resolves(dirname(contribution.path), name))) {
     notes.push(`${dependencies.join(', ')} was added to devDependencies; run \`npm install\` so the stack's gates can find it.`)
   }
@@ -628,9 +702,11 @@ function reportTypescriptConfig(report, notes) {
   }
   if (report.bundler) notes.push(BUNDLER_NOTE)
   if (report.required.length > 0 || report.conflicts.length > 0 || report.suggested.length > 0) {
-    notes.push(report.bundler
-      ? 'tsconfig.json was left as it is. Apply the strictness options if the user wants them; leave the module and target settings to the framework.'
-      : 'tsconfig.json was left as it is, so its comments and values survive. Ask the user whether to apply the options above.')
+    notes.push(
+      report.bundler
+        ? 'tsconfig.json was left as it is. Apply the strictness options if the user wants them; leave the module and target settings to the framework.'
+        : 'tsconfig.json was left as it is, so its comments and values survive. Ask the user whether to apply the options above.',
+    )
   }
 }
 
@@ -672,8 +748,10 @@ function installHook(targetDir, { force, dryRun, notes, root }) {
       if (!statSync(hookPath).isFile()) throw new Error('not a regular file')
       present = readFileSync(hookPath, 'utf8')
     } catch (error) {
-      notes.push(`.githooks/pre-commit exists but could not be read (${error instanceof Error ? error.message : String(error)}); `
-        + 'left it alone and did not install the gates hook.')
+      notes.push(
+        `.githooks/pre-commit exists but could not be read (${error instanceof Error ? error.message : String(error)}); ` +
+          'left it alone and did not install the gates hook.',
+      )
       return { relPath: '.githooks/pre-commit', outcome: 'kept', detail: 'not a readable file' }
     }
   }
@@ -681,8 +759,10 @@ function installHook(targetDir, { force, dryRun, notes, root }) {
   // still the hook this tool wrote.
   const unchanged = present !== null && present.replace(/\r\n/gu, '\n') === PRE_COMMIT
   if (present !== null && !unchanged && !force) {
-    notes.push('.githooks/pre-commit already exists and was kept; the gates are not wired into it. '
-      + 'Add `node scripts/gates/run.mjs --group commit` to it, or re-run with --force to replace it.')
+    notes.push(
+      '.githooks/pre-commit already exists and was kept; the gates are not wired into it. ' +
+        'Add `node scripts/gates/run.mjs --group commit` to it, or re-run with --force to replace it.',
+    )
     return { relPath: '.githooks/pre-commit', outcome: 'kept', detail: 'exists; gates not installed' }
   }
   if (!dryRun) {
@@ -707,7 +787,9 @@ function installHook(targetDir, { force, dryRun, notes, root }) {
     // `GIT_CONFIG` would otherwise put it somewhere nothing reads, silently,
     // because the result is not inspected.
     if (!dryRun) setLocalConfig(targetDir, 'agent-init.githooks', 'true', notes)
-    notes.push(`core.hooksPath is already ${configured}; left as is. These hooks run where that directory chains to them, and otherwise with: git config core.hooksPath .githooks`)
+    notes.push(
+      `core.hooksPath is already ${configured}; left as is. These hooks run where that directory chains to them, and otherwise with: git config core.hooksPath .githooks`,
+    )
     return { relPath: '.githooks/pre-commit', outcome: unchanged ? 'kept' : 'added', detail: 'not activated' }
   }
   if (configured === '') {
@@ -716,8 +798,10 @@ function installHook(targetDir, { force, dryRun, notes, root }) {
       // Git reads `core.hooksPath` or `$GIT_DIR/hooks`, never both, so pointing
       // the path at `.githooks` would stop these from running without a word.
       if (!dryRun) setLocalConfig(targetDir, 'agent-init.githooks', 'true', notes)
-      notes.push(`core.hooksPath is unset and $GIT_DIR/hooks already holds ${displaced.join(', ')}; left unset so they keep running. `
-        + 'Point it at .githooks yourself to run the gates on every commit, or call this hook from the existing one.')
+      notes.push(
+        `core.hooksPath is unset and $GIT_DIR/hooks already holds ${displaced.join(', ')}; left unset so they keep running. ` +
+          'Point it at .githooks yourself to run the gates on every commit, or call this hook from the existing one.',
+      )
       return { relPath: '.githooks/pre-commit', outcome: unchanged ? 'kept' : 'added', detail: 'not activated' }
     }
   }
@@ -742,7 +826,7 @@ function installHook(targetDir, { force, dryRun, notes, root }) {
  * @returns True when both name one directory.
  */
 function sameDirectory(targetDir, configured, own) {
-  const real = (path) => {
+  const real = path => {
     try {
       return realpathSync(path)
     } catch {
@@ -778,7 +862,7 @@ function executableGitHooks(targetDir) {
   }
   return entries
     .filter(entry => entry.isFile() && !entry.name.endsWith('.sample'))
-    .filter((entry) => {
+    .filter(entry => {
       try {
         return (statSync(join(dir, entry.name)).mode & 0o111) !== 0
       } catch {

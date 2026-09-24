@@ -40,6 +40,8 @@ CLAUDE.md                     → AGENTS.md
   notes/                      the decision-record tree and its standard
   skills/                     four workflows, each a skill named by its directory
 .claude/skills/               → those, linked for the agent to read
+.claude/hooks/                the edit hook: syntax, then formatting, after each edit
+.claude/settings.json         registers it
 docs/
   AGENTS.md                   the documentation standard: tiers, budgets, slop checklist
   architecture.md             the system map, as a skeleton to fill in
@@ -48,7 +50,7 @@ scripts/gates/                the checks, zero dependencies
 .githooks/pre-commit          what runs on every commit, installed and activated
 ```
 
-The hook does not displace anything: an existing `.githooks/pre-commit` is kept unless `--force` is given, and `core.hooksPath` is left alone when it points elsewhere in any scope or `.git/hooks` holds an executable hook — Git reads one or the other, never both. It reports `not activated` and how to enable it: `git config core.hooksPath .githooks`, which replaces the other directory's hooks.
+Neither hook displaces anything. An existing `.githooks/pre-commit` is kept unless `--force`, and `core.hooksPath` is left alone when it points elsewhere or `.git/hooks` holds an executable hook — Git reads one or the other — and the run prints the command that activates it. The edit hook is added to `.claude/settings.json` beside the hooks already there.
 
 ## Options
 
@@ -59,7 +61,7 @@ The hook does not displace anything: an existing `.githooks/pre-commit` is kept 
 | `--skills a,b,c` | Which skills to include, or `all`. |
 | `--with-architecture` | Add the composition discipline (below). |
 | `--lenient` | Mark every gate advisory, for adopting an existing repository. |
-| `--no-hooks` | Do not install the pre-commit hook |
+| `--no-hooks` | Do not install the pre-commit hook or register the edit hook. |
 | `--force` | Overwrite existing files. |
 | `--dry-run` | Print the plan, write nothing. |
 | `--allow-non-git` | Scaffold outside a Git worktree. |
@@ -141,7 +143,7 @@ Node 20.11 or newer for the gates. A stack's gate needs that language's toolchai
 
 A missing toolchain fails the gate loud, naming what is missing and how to opt out. It never reports a clean run it did not perform.
 
-Rust's and TypeScript's type gates run in the `full` group only. `missing_docs` is a per-crate lint and a type error is a property of the whole program, so both compile the project rather than scanning files, and the `commit` group's contract is a hook that stays fast. Move either to `commit` in `scripts/gates/gates.json` if your project is small enough to check on every commit.
+Rust's and TypeScript's type gates run in the `full` group only: both compile the whole project, because `missing_docs` is a per-crate lint and a type error belongs to the program, and the `commit` group must stay fast. Move either to `commit` in `scripts/gates/gates.json` if your project is small enough.
 
 ## Design
 

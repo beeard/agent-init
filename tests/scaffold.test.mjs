@@ -3,7 +3,21 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync, chmodSync } from 'node:fs'
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+  chmodSync,
+} from 'node:fs'
 import { dirname, join, sep } from 'node:path'
 import { STACKS, buildPlan } from '../src/plan.mjs'
 import { collectFiles, skipPredicate } from '../templates/base/scripts/gates/lib/repo-files.mjs'
@@ -198,7 +212,7 @@ test('every shipped Markdown file is read by the package gates, or deliberately 
   const coveredReal = new Set(corpus.map(file => file.real))
   assert.ok(covered.size > 0, 'the package globs must select something')
 
-  const uncovered = shippedMarkdown(PACKAGE_ROOT).filter((rel) => {
+  const uncovered = shippedMarkdown(PACKAGE_ROOT).filter(rel => {
     if (covered.has(rel) || skip(rel)) return false
     return !coveredReal.has(realpathSync(join(PACKAGE_ROOT, rel)))
   })
@@ -295,8 +309,7 @@ test('the merge report names what changed, not just the top-level keys', () => {
     // called this run a no-op while the file gained a layer's share.
     const contributed = runCli(['.', '--stack', 'go'], repo)
     assert.equal(contributed.code, 0)
-    assert.match(contributed.output,
-      /merged\s+scripts\/gates\/doc-budgets\.manifest\.json\s+\+ go in AGENTS\.md, \+ docs\/testing-go\.md/u)
+    assert.match(contributed.output, /merged\s+scripts\/gates\/doc-budgets\.manifest\.json\s+\+ go in AGENTS\.md, \+ docs\/testing-go\.md/u)
 
     // Re-running the same layer writes what the file already holds, and says so
     // rather than reporting every list as changed on identity.
@@ -310,8 +323,7 @@ test('the merge report names what changed, not just the top-level keys', () => {
     manifest['docs/testing-go.md'] = 500
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
     const kept = runCli(['.', '--stack', 'go'], repo)
-    assert.match(kept.output,
-      /kept\s+scripts\/gates\/doc-budgets\.manifest\.json\s+kept go in AGENTS\.md, docs\/testing-go\.md as the file has them/u)
+    assert.match(kept.output, /kept\s+scripts\/gates\/doc-budgets\.manifest\.json\s+kept go in AGENTS\.md, docs\/testing-go\.md as the file has them/u)
     assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8'))['AGENTS.md'].go, 999)
 
     // --force is what replaces them.
@@ -364,14 +376,15 @@ test('two stacks that write one path are refused, and two that append are not', 
   template('base/AGENTS.md', '# Orders\n')
   template('alpha/docs/shared.md', 'alpha\n')
   template('beta/docs/shared.md', 'beta\n')
-  const plan = stack => () => buildPlan({
-    targetDir: sandbox,
-    templatesRoot: templates,
-    projectName: 'demo',
-    skills: [],
-    stack,
-    architecture: false,
-  })
+  const plan = stack => () =>
+    buildPlan({
+      targetDir: sandbox,
+      templatesRoot: templates,
+      projectName: 'demo',
+      skills: [],
+      stack,
+      architecture: false,
+    })
   try {
     // `base` above `architecture` is a fixed order, so a replacement there is a
     // decision. Between stacks there is no order, so the survivor here would be
@@ -385,7 +398,10 @@ test('two stacks that write one path are refused, and two that append are not', 
     template('alpha/AGENTS.md.append', '## Alpha\n')
     template('beta/AGENTS.md.append', '## Beta\n')
     const files = plan(['alpha', 'beta'])().files
-    assert.deepEqual(files.filter(file => file.kind === 'append').map(file => file.layer), ['alpha', 'beta'])
+    assert.deepEqual(
+      files.filter(file => file.kind === 'append').map(file => file.layer),
+      ['alpha', 'beta'],
+    )
   } finally {
     removeSandbox(sandbox)
   }
@@ -417,8 +433,7 @@ test('a repository whose hooks Git cannot reach is opted in instead', () => {
     const result = runCli(['.', '--name', 'demo'], repo)
     assert.equal(result.code, 0, result.output)
     assert.match(result.output, /not activated/u)
-    const marker = spawnSync('git', ['-C', repo, 'config', '--local', '--get', 'agent-init.githooks'],
-      { encoding: 'utf8' })
+    const marker = spawnSync('git', ['-C', repo, 'config', '--local', '--get', 'agent-init.githooks'], { encoding: 'utf8' })
     assert.equal(marker.stdout.trim(), 'true')
   } finally {
     removeSandbox(repo)
@@ -561,14 +576,15 @@ test('a global core.hooksPath is left in place rather than overridden locally', 
 
 test('refuses a skill name that matches no template', () => {
   assert.throws(
-    () => buildPlan({
-      targetDir: PACKAGE_ROOT,
-      templatesRoot: join(PACKAGE_ROOT, 'templates'),
-      projectName: 'demo',
-      skills: ['not-a-skill'],
-      stack: [],
-      architecture: false,
-    }),
+    () =>
+      buildPlan({
+        targetDir: PACKAGE_ROOT,
+        templatesRoot: join(PACKAGE_ROOT, 'templates'),
+        projectName: 'demo',
+        skills: ['not-a-skill'],
+        stack: [],
+        architecture: false,
+      }),
     /unknown skill\(s\): not-a-skill/u,
   )
 })
@@ -610,10 +626,18 @@ test('the architecture layer is not applied by default', () => {
 test('adds gate scripts to an existing package.json without clobbering', () => {
   const repo = makeSandbox()
   try {
-    writeFileSync(join(repo, 'package.json'), `${JSON.stringify({
-      name: 'demo',
-      scripts: { 'check:agents': 'echo mine' },
-    }, null, 2)}\n`, 'utf8')
+    writeFileSync(
+      join(repo, 'package.json'),
+      `${JSON.stringify(
+        {
+          name: 'demo',
+          scripts: { 'check:agents': 'echo mine' },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    )
     assert.equal(runCli(['.'], repo).code, 0)
     const pkg = JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8'))
     assert.equal(pkg.scripts['check:agents'], 'echo mine')
@@ -765,11 +789,19 @@ test('a Node project still gets the ESM and module recommendations', () => {
 test('does not clobber its own typecheck script or a pinned compiler', () => {
   const repo = makeSandbox()
   try {
-    writeFileSync(join(repo, 'package.json'), `${JSON.stringify({
-      name: 'demo',
-      scripts: { typecheck: 'tsc -p tsconfig.build.json' },
-      devDependencies: { typescript: '^4.9.5' },
-    }, null, 2)}\n`, 'utf8')
+    writeFileSync(
+      join(repo, 'package.json'),
+      `${JSON.stringify(
+        {
+          name: 'demo',
+          scripts: { typecheck: 'tsc -p tsconfig.build.json' },
+          devDependencies: { typescript: '^4.9.5' },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    )
     assert.equal(runCli(['.', '--name', 'demo', '--stack', 'typescript', '--no-hooks'], repo).code, 0)
     const pkg = JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8'))
     assert.equal(pkg.scripts.typecheck, 'tsc -p tsconfig.build.json')
@@ -910,7 +942,11 @@ test('a symlink out of the repository is never written through', () => {
     symlinkSync(outside, join(repo, 'docs'))
     const result = runCli(['.', '--name', 'demo'], repo)
     assert.equal(result.code, 0, result.output)
-    assert.deepEqual(readdirSync(outside).filter(name => name !== '.git'), [], 'nothing may be created outside the repository')
+    assert.deepEqual(
+      readdirSync(outside).filter(name => name !== '.git'),
+      [],
+      'nothing may be created outside the repository',
+    )
     // A dangling link is reported as what it is, not as a platform refusal.
     assert.match(result.output, /kept\s+CLAUDE\.md\s+a dangling symlink/u)
     assert.doesNotMatch(result.output, /symlink unavailable/u)
@@ -932,7 +968,10 @@ test('a re-run keeps a merged value edited by hand', () => {
     writeFileSync(gatesPath, `${JSON.stringify(gates, null, 2)}\n`, 'utf8')
     const again = runCli(['.', '--no-hooks', '--stack', 'go'], repo)
     assert.equal(again.code, 0, again.output)
-    assert.match(again.output, /merged\s+scripts\/gates\/gates\.json\s+\+ description in verify-go-docstrings\.mjs, kept advisory in verify-go-docstrings\.mjs as the file has them/u)
+    assert.match(
+      again.output,
+      /merged\s+scripts\/gates\/gates\.json\s+\+ description in verify-go-docstrings\.mjs, kept advisory in verify-go-docstrings\.mjs as the file has them/u,
+    )
     const after = JSON.parse(readFileSync(gatesPath, 'utf8'))['verify-go-docstrings.mjs']
     assert.equal(after.advisory, false, 'a tightened gate stays tightened')
     assert.equal(typeof after.description, 'string', 'a missing entry is still added')
@@ -964,7 +1003,11 @@ test('the manifest records a layer added on a later run', () => {
 
 test('a dry run reports what the real run does', () => {
   const args = ['--name', 'demo', '--no-hooks', '--stack', 'go', '--with-architecture']
-  const rows = output => output.split('\n').filter(row => /^ {2}[a-z]+ +\S/u.test(row) && !row.includes('dry run')).join('\n')
+  const rows = output =>
+    output
+      .split('\n')
+      .filter(row => /^ {2}[a-z]+ +\S/u.test(row) && !row.includes('dry run'))
+      .join('\n')
   const dryRepo = makeSandbox()
   const realRepo = makeSandbox()
   try {
