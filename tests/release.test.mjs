@@ -101,7 +101,10 @@ test('the release skill exists and is reachable where the agent reads skills', (
 test('the release skill is not in the published package', () => {
   const result = spawnSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], { cwd: PACKAGE_ROOT, encoding: 'utf8' })
   assert.equal(result.status, 0, result.stderr)
-  const paths = JSON.parse(result.stdout)[0].files.map(file => file.path)
+  // npm 9 prints an array of packages; npm 12 prints an object keyed by name.
+  const listing = JSON.parse(result.stdout)
+  const [pack] = Array.isArray(listing) ? listing : Object.values(listing)
+  const paths = pack.files.map(file => file.path)
   assert.ok(paths.includes('package.json'), 'the listing must hold the package')
   assert.deepEqual(
     paths.filter(path => path.includes(SKILL)),
