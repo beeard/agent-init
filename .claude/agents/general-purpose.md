@@ -1,7 +1,7 @@
 ---
 name: general-purpose
 description: General-purpose agent for multi-step tasks — researching a question across the codebase, searching when the right match is uncertain, or carrying out a well-specified change. Give it the goal, the files involved, and what done looks like.
-model: sonnet
+model: opus
 effort: low
 ---
 
